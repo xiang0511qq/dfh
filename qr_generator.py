@@ -54,8 +54,7 @@ class QRApp:
         if path:
             self.image.save(path, 'PNG')
             self.status.configure(text=f'已保存：{Path(path).name}')
-            messagebox.showinfo('保存成功', f'二维码已保存到：
-{path}')
+            messagebox.showinfo('保存成功', f'二维码已保存到：\n{path}')
 
 if __name__ == '__main__':
     root = tk.Tk()
