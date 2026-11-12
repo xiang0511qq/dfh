@@ -16,10 +16,14 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Build EXE
+      - name: Build QR EXE
         run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name "二维码生成工具" qr_generator.py
-      - name: Upload EXE
+      - name: Build compression EXE
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name "通用文件压缩工具" "通用压缩工具.py"
+      - name: Upload EXEs
         uses: actions/upload-artifact@v4
         with:
-          name: 二维码生成工具-Windows
-          path: dist/二维码生成工具.exe
+          name: Windows-EXE工具包
+          path: |
+            dist/二维码生成工具.exe
+            dist/通用文件压缩工具.exe
