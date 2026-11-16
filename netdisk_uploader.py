@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import shutil
 import threading
 import queue
 import time
@@ -76,6 +77,27 @@ def is_official_share_url(value: str, provider: Provider) -> bool:
 
 def clean_url(value: str) -> str:
     return value.rstrip(".,;，。；）)]}")
+
+
+def find_installed_browser() -> Optional[str]:
+    candidates = []
+    for env_name in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+        root = os.environ.get(env_name)
+        if not root:
+            continue
+        candidates.extend([
+            Path(root) / "Google/Chrome/Application/chrome.exe",
+            Path(root) / "Microsoft/Edge/Application/msedge.exe",
+            Path(root) / "Chromium/Application/chrome.exe",
+        ])
+    for command in ("chrome.exe", "msedge.exe", "chromium.exe", "chrome"):
+        found = shutil.which(command)
+        if found:
+            candidates.append(Path(found))
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return None
 
 
 def visible_text(page) -> str:
@@ -278,14 +300,20 @@ class BrowserWorker:
     def _do_open_provider(self, provider: Provider):
         profile = PROFILE_DIR / provider.key
         profile.mkdir(parents=True, exist_ok=True)
-        context = self.playwright.chromium.launch_persistent_context(
-            str(profile),
-            headless=False,
-            accept_downloads=True,
-            permissions=["clipboard-read", "clipboard-write"],
-            viewport={"width": 1440, "height": 900},
-            args=["--disable-blink-features=AutomationControlled"],
-        )
+        launch_options = {
+            "headless": False,
+            "accept_downloads": True,
+            "permissions": ["clipboard-read", "clipboard-write"],
+            "viewport": {"width": 1440, "height": 900},
+            "args": ["--disable-blink-features=AutomationControlled"],
+        }
+        browser_executable = find_installed_browser()
+        if browser_executable:
+            self.log(f"使用已安装浏览器：{Path(browser_executable).name}")
+            launch_options["executable_path"] = browser_executable
+        else:
+            self.log("未找到 Chrome 或 Edge，请先安装浏览器")
+        context = self.playwright.chromium.launch_persistent_context(str(profile), **launch_options)
         page = context.pages[0] if context.pages else context.new_page()
         page.goto(provider.url, wait_until="domcontentloaded", timeout=30000)
         self.contexts[provider.key] = context
