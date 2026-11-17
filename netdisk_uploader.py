@@ -347,7 +347,19 @@ def wait_upload_finished(page, target: Path, log: Callable[[str], None]) -> None
 
 
 def choose_uploaded_item(page, target: Path) -> bool:
-    for _ in range(30):
+    try:
+        page.reload(wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(1200)
+    except Exception:
+        pass
+    for _ in range(40):
+        try:
+            rows = page.get_by_role("row").filter(has_text=re.compile(re.escape(target.name), re.I))
+            if rows.count() and rows.first.is_visible():
+                rows.first.click(timeout=3000)
+                return True
+        except Exception:
+            pass
         for locator in (
             page.get_by_text(target.name, exact=True),
             page.get_by_text(re.compile(re.escape(target.name), re.I)),
@@ -406,6 +418,10 @@ def create_share_link(page, provider: Provider, target: Path, log: Callable[[str
         click_text(page, provider.public_share_words, timeout=1800)
     click_text(page, ("创建链接", "生成链接", "确定", "确认"), timeout=1500)
     time.sleep(1.2)
+    try:
+        page.wait_for_timeout(1200)
+    except Exception:
+        pass
     # Clear stale clipboard data, then click the provider's copy action.
     try:
         page.evaluate("navigator.clipboard.writeText('')")
