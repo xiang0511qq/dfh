@@ -35,6 +35,10 @@ else:
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 PROFILE_DIR = DATA_DIR / "browser_profiles"
 LOGIN_STATE_FILE = DATA_DIR / "login_state.json"
+BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", str(APP_DIR)))
+BUNDLED_BROWSER_DIR = BUNDLE_DIR / "ms-playwright"
+if BUNDLED_BROWSER_DIR.exists():
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(BUNDLED_BROWSER_DIR)
 
 
 @dataclass(frozen=True)
@@ -400,6 +404,7 @@ class BrowserWorker:
         self.pages = {}
         self.browser_checked = False
         self.browser_executable = None
+        self.browser_mode = "system"
         self.remote_browsers = {}
         try:
             if sync_playwright is None:
@@ -449,10 +454,16 @@ class BrowserWorker:
         profile = PROFILE_DIR / provider.key
         profile.mkdir(parents=True, exist_ok=True)
         if not self.browser_checked:
-            self.browser_executable = find_installed_browser()
+            if BUNDLED_BROWSER_DIR.exists():
+                self.browser_mode = "bundled"
+                self.browser_executable = None
+            else:
+                self.browser_executable = find_installed_browser()
             self.browser_checked = True
         browser_executable = self.browser_executable
-        if browser_executable:
+        if self.browser_mode == "bundled":
+            self.log("使用软件内置浏览器")
+        elif browser_executable:
             self.log(f"使用已安装浏览器：{Path(browser_executable).name}")
         if is_360_browser(browser_executable):
             port = debug_port_for(provider)
@@ -497,7 +508,7 @@ class BrowserWorker:
         }
         if browser_executable:
             launch_options["executable_path"] = browser_executable
-        else:
+        elif self.browser_mode != "bundled":
             self.log("未找到可用的 Chromium 浏览器，请先安装 Chrome、Edge、360、QQ、搜狗、2345或遨游浏览器")
         context = self.playwright.chromium.launch_persistent_context(str(profile), **launch_options)
         page = context.pages[0] if context.pages else context.new_page()
