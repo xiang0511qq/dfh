@@ -416,7 +416,7 @@ def create_share_link(page, provider: Provider, target: Path, log: Callable[[str
     # UC and Baidu expose a separate public-share choice after opening Share.
     if provider.public_share_words:
         click_text(page, provider.public_share_words, timeout=1800)
-    click_text(page, ("创建链接", "生成链接", "确定", "确认"), timeout=1500)
+    click_text(page, ("创建分享链接", "创建链接", "生成链接", "确定", "确认"), timeout=2000)
     time.sleep(1.2)
     try:
         page.wait_for_timeout(1200)
