@@ -448,6 +448,12 @@ class BrowserWorker:
     def _do_open_provider(self, provider: Provider):
         profile = PROFILE_DIR / provider.key
         profile.mkdir(parents=True, exist_ok=True)
+        if not self.browser_checked:
+            self.browser_executable = find_installed_browser()
+            self.browser_checked = True
+        browser_executable = self.browser_executable
+        if browser_executable:
+            self.log(f"使用已安装浏览器：{Path(browser_executable).name}")
         if is_360_browser(browser_executable):
             port = debug_port_for(provider)
             launch_args = [
@@ -485,12 +491,7 @@ class BrowserWorker:
             "viewport": {"width": 1440, "height": 900},
             "args": ["--disable-blink-features=AutomationControlled"],
         }
-        if not self.browser_checked:
-            self.browser_executable = find_installed_browser()
-            self.browser_checked = True
-        browser_executable = self.browser_executable
         if browser_executable:
-            self.log(f"使用已安装浏览器：{Path(browser_executable).name}")
             launch_options["executable_path"] = browser_executable
         else:
             self.log("未找到可用的 Chromium 浏览器，请先安装 Chrome、Edge、360、QQ、搜狗、2345或遨游浏览器")
