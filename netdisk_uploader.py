@@ -153,16 +153,8 @@ def find_installed_browser() -> Optional[str]:
             except OSError:
                 continue
 
-        search_roots = [Path(value) for value in roots if value]
-        browser_names = {"360se.exe", "360chrome.exe", "360browser.exe", "chrome.exe", "msedge.exe", "qqbrowser.exe"}
-        for root in search_roots:
-            try:
-                for path in root.rglob("*.exe"):
-                    if path.name.lower() in browser_names:
-                        candidates.append(path)
-            except (OSError, PermissionError):
-                continue
-
+        # Avoid recursively scanning Program Files/AppData; that can freeze startup for minutes.
+        # Known install paths, PATH and browser registry entries above are sufficient.
     seen: set[str] = set()
     for candidate in candidates:
         key = str(candidate).lower()
