@@ -517,6 +517,7 @@ class BrowserWorker:
         context = self.playwright.chromium.launch_persistent_context(str(profile), **launch_options)
         page = context.pages[0] if context.pages else context.new_page()
         page.goto(provider.url, wait_until="domcontentloaded", timeout=30000)
+        page.bring_to_front()
         self.contexts[provider.key] = context
         self.pages[provider.key] = page
         return page
