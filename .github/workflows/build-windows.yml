@@ -18,12 +18,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -m playwright install chromium
       - name: Build NetdiskUploader EXE
         shell: pwsh
         run: |
-          $browserPath = Join-Path $env:LOCALAPPDATA "ms-playwright"
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name "NetdiskUploader" --add-data "$browserPath;ms-playwright" netdisk_uploader.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name "NetdiskUploader" netdisk_uploader.py
       - name: Upload NetdiskUploader EXE
         uses: actions/upload-artifact@v4
         with:
