@@ -276,6 +276,28 @@ def click_text(page, words: tuple[str, ...], timeout: int = 2500) -> bool:
     return False
 
 
+def click_share_action(page, provider: Provider) -> bool:
+    words = provider.share_words + ("公开分享", "公开链接", "分享链接", "生成分享链接", "创建链接")
+    if click_text(page, words):
+        return True
+    selectors = (
+        '[aria-label*="分享"]', '[title*="分享"]', '[data-testid*="share"]',
+        '[class*="share"]', 'button:has-text("分享")',
+        '[aria-label*="公开"]', '[title*="公开"]',
+    )
+    for selector in selectors:
+        try:
+            locator = page.locator(selector)
+            if locator.count() and locator.first.is_visible():
+                locator.first.click(timeout=2500)
+                return True
+        except Exception:
+            continue
+    if click_text(page, ("更多", "操作", "菜单")):
+        return click_text(page, words)
+    return False
+
+
 def set_file_input(page, target: Path) -> bool:
     inputs = page.locator('input[type="file"]')
     try:
@@ -325,18 +347,21 @@ def wait_upload_finished(page, target: Path, log: Callable[[str], None]) -> None
 
 
 def choose_uploaded_item(page, target: Path) -> bool:
-    # Selecting the visible filename works across the four providers and lets the user
-    # keep the normal provider UI available if the layout changes.
-    for locator in (
-        page.get_by_text(target.name, exact=True),
-        page.get_by_text(re.compile(re.escape(target.name), re.I)),
-    ):
+    for _ in range(30):
+        for locator in (
+            page.get_by_text(target.name, exact=True),
+            page.get_by_text(re.compile(re.escape(target.name), re.I)),
+        ):
+            try:
+                if locator.count() and locator.first.is_visible():
+                    locator.first.click(timeout=3000)
+                    return True
+            except Exception:
+                continue
         try:
-            if locator.count() and locator.first.is_visible():
-                locator.first.click(timeout=3000)
-                return True
+            page.wait_for_timeout(500)
         except Exception:
-            continue
+            time.sleep(0.5)
     return False
 
 
@@ -371,7 +396,7 @@ def create_share_link(page, provider: Provider, target: Path, log: Callable[[str
     if not choose_uploaded_item(page, target):
         log("未定位到已上传文件，请在网页中手动选中后重试")
         return None
-    if not click_text(page, provider.share_words):
+    if not click_share_action(page, provider):
         log("未找到分享按钮，请在网页中手动点击分享")
         return None
     time.sleep(1.2)
