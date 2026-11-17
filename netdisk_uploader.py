@@ -458,14 +458,14 @@ def click_upload_and_choose(page, provider: Provider, target: Path) -> bool:
 
 def wait_upload_finished(page, target: Path, log: Callable[[str], None]) -> bool:
     name = target.name
-    normalized_name = re.sub(r"\\s+", "", name).lower() if name else ""
+    normalized_name = re.sub(r"\s+", "", name).lower() if name else ""
     end_at = time.time() + 120
     completion_seen = False
     next_refresh = time.time() + 8
     last_text = ""
     while time.time() < end_at:
         text = visible_text(page)
-        normalized_text = re.sub(r"\\s+", "", text).lower()
+        normalized_text = re.sub(r"\s+", "", text).lower()
         if text != last_text:
             last_text = text
             if any(token in text for token in ("上传完成", "上传成功", "已完成", "完成上传", "传输完成")):
