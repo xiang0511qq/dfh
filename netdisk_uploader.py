@@ -212,16 +212,24 @@ def saved_login_label(provider_key: str) -> str:
 
 def page_looks_logged_in(page) -> bool:
     try:
+        current_url = page.url.lower()
         text = page.locator("body").inner_text(timeout=5000)
     except Exception:
         return False
     if not text.strip():
         return False
-    login_prompts = ("扫码登录", "手机号登录", "立即登录", "登录/注册")
-    logged_markers = ("退出登录", "我的网盘", "我的文件", "上传", "新建文件夹", "个人中心")
-    if any(marker in text for marker in login_prompts) and not any(marker in text for marker in logged_markers):
+    if any(token in current_url for token in ("/login", "/signin", "/passport", "/auth")):
         return False
-    return any(marker in text for marker in logged_markers)
+    login_prompts = ("扫码登录", "手机号登录", "立即登录", "登录/注册", "账号登录", "密码登录")
+    strong_logged_markers = (
+        "退出登录", "我的网盘", "我的文件", "全部文件", "个人中心",
+        "传输列表", "新建文件夹", "文件管理", "我的资源",
+    )
+    if any(marker in text for marker in login_prompts) and not any(
+        marker in text for marker in ("退出登录", "个人中心")
+    ):
+        return False
+    return any(marker in text for marker in strong_logged_markers)
 
 
 def is_360_browser(path: Optional[str]) -> bool:
