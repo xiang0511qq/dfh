@@ -521,7 +521,7 @@ class BrowserWorker:
             except Exception as exc:
                 self.log(f"{provider.name} 打开失败：{exc}")
 
-    def _do_upload_selected(self, providers: list[Provider], target: Path) -> dict[str, str]:
+    def _do_upload_selected(self, providers: list[Provider], target: Path, create_links: bool = True) -> dict[str, str]:
         results: dict[str, str] = {}
         for provider in providers:
             page = self.pages.get(provider.key)
@@ -537,6 +537,10 @@ class BrowserWorker:
                     self.log(f"[{provider.name}] 未找到上传入口，请在网页中手动点击上传")
                     continue
                 wait_upload_finished(page, target, lambda msg, p=provider: self.log(f"[{p.name}] {msg}"))
+                if not create_links:
+                    results[provider.name] = "已上传"
+                    self.log(f"[{provider.name}] 上传完成")
+                    continue
                 link = create_share_link(page, provider, target, lambda msg, p=provider: self.log(f"[{p.name}] {msg}"))
                 if link:
                     results[provider.name] = link
@@ -564,7 +568,10 @@ class BrowserWorker:
         return self._call("check_login", providers)
 
     def upload_selected(self, providers: list[Provider], target: Path) -> dict[str, str]:
-        return self._call("upload_selected", providers, target)
+        return self._call("upload_selected", providers, target, True)
+
+    def upload_only(self, providers: list[Provider], target: Path) -> dict[str, str]:
+        return self._call("upload_selected", providers, target, False)
 
     def close(self) -> None:
         if self.thread.is_alive():
@@ -617,8 +624,10 @@ class App(tk.Tk):
 
         action_box = ttk.Frame(root)
         action_box.pack(fill="x", pady=12)
-        self.upload_btn = ttk.Button(action_box, text="一键上传并生成分享链接", command=self.start_upload)
+        self.upload_btn = ttk.Button(action_box, text="上传文件/文件夹", command=self.start_upload_only)
         self.upload_btn.pack(side="left")
+        self.share_btn = ttk.Button(action_box, text="上传并生成分享链接", command=self.start_upload)
+        self.share_btn.pack(side="left", padx=8)
         ttk.Button(action_box, text="复制全部链接", command=self.copy_links).pack(side="left", padx=8)
         ttk.Button(action_box, text="清空结果", command=lambda: self.links.delete("1.0", "end")).pack(side="left")
         ttk.Label(action_box, textvariable=self.status_var).pack(side="right")
@@ -721,16 +730,25 @@ class App(tk.Tk):
         if target is None:
             return
         self.links.delete("1.0", "end")
-        self._set_busy(True, "正在上传，请稍候")
-        threading.Thread(target=self._upload_worker, args=(providers, target), daemon=True).start()
+        self._set_busy(True, "正在上传并生成分享链接，请稍候")
+        threading.Thread(target=self._upload_worker, args=(providers, target, True), daemon=True).start()
 
-    def _upload_worker(self, providers: list[Provider], target: Path):
+    def start_upload_only(self):
+        target, providers = self._validate()
+        if target is None:
+            return
+        self.links.delete("1.0", "end")
+        self._set_busy(True, "正在上传文件或文件夹，请稍候")
+        threading.Thread(target=self._upload_worker, args=(providers, target, False), daemon=True).start()
+
+    def _upload_worker(self, providers: list[Provider], target: Path, create_links: bool):
         try:
             if self.worker is None:
                 self.worker = BrowserWorker(self._log)
-            results = self.worker.upload_selected(providers, target)
+            results = self.worker.upload_selected(providers, target) if create_links else self.worker.upload_only(providers, target)
             self.events.put(("results", results))
-            self.events.put(("status", f"完成，获取到 {len(results)} 个分享链接"))
+            status = "上传并生成链接完成" if create_links else "文件或文件夹上传完成"
+            self.events.put(("status", status))
         except Exception as exc:
             self.events.put(("error", str(exc)))
         finally:
@@ -766,6 +784,7 @@ class App(tk.Tk):
 
     def _set_busy(self, busy: bool, status: Optional[str] = None):
         self.upload_btn.configure(state="disabled" if busy else "normal")
+        self.share_btn.configure(state="disabled" if busy else "normal")
         if status:
             self.status_var.set(status)
 
