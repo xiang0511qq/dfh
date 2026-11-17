@@ -5,6 +5,9 @@ import re
 import sys
 import shutil
 import threading
+
+if sys.platform == "win32":
+    import winreg
 import queue
 import time
 from dataclasses import dataclass
@@ -80,11 +83,14 @@ def clean_url(value: str) -> str:
 
 
 def find_installed_browser() -> Optional[str]:
-    candidates = []
-    for env_name in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
-        root = os.environ.get(env_name)
-        if not root:
-            continue
+    candidates: list[Path] = []
+    roots = [
+        os.environ.get("PROGRAMFILES"),
+        os.environ.get("PROGRAMFILES(X86)"),
+        os.environ.get("LOCALAPPDATA"),
+        os.environ.get("APPDATA"),
+    ]
+    for root in (value for value in roots if value):
         candidates.extend([
             Path(root) / "Google/Chrome/Application/chrome.exe",
             Path(root) / "Microsoft/Edge/Application/msedge.exe",
@@ -92,21 +98,69 @@ def find_installed_browser() -> Optional[str]:
             Path(root) / "360/360Chrome/Chrome/Application/360chrome.exe",
             Path(root) / "360Chrome/Chrome/Application/360chrome.exe",
             Path(root) / "360/360Chrome/360chrome.exe",
+            Path(root) / "360/360安全浏览器/360se.exe",
+            Path(root) / "360安全浏览器/360se.exe",
+            Path(root) / "360se6/Application/360se.exe",
             Path(root) / "Tencent/QQBrowser/QQBrowser.exe",
             Path(root) / "QQBrowser/QQBrowser.exe",
             Path(root) / "SogouExplorer/SogouExplorer.exe",
             Path(root) / "2345Explorer/2345Explorer.exe",
             Path(root) / "Maxthon/Application/Maxthon.exe",
         ])
+
     for command in (
-        "chrome.exe", "msedge.exe", "chromium.exe", "360chrome.exe",
-        "qqbrowser.exe", "sogouexplorer.exe", "2345explorer.exe",
+        "chrome.exe", "msedge.exe", "chromium.exe", "360se.exe", "360chrome.exe",
+        "360browser.exe", "qqbrowser.exe", "sogouexplorer.exe", "2345explorer.exe",
         "maxthon.exe", "chrome",
     ):
         found = shutil.which(command)
         if found:
             candidates.append(Path(found))
+
+    if sys.platform == "win32":
+        registry_locations = (
+            (winreg.HKEY_CURRENT_USER, r"Software\Clients\StartMenuInternet"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\Clients\StartMenuInternet"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Clients\StartMenuInternet"),
+        )
+        for hive, location in registry_locations:
+            try:
+                with winreg.OpenKey(hive, location) as root_key:
+                    count = winreg.QueryInfoKey(root_key)[0]
+                    for index in range(count):
+                        browser_key = winreg.EnumKey(root_key, index)
+                        command_path = location + "\\" + browser_key + r"\shell\open\command"
+                        try:
+                            with winreg.OpenKey(hive, command_path) as command_key:
+                                command = winreg.QueryValueEx(command_key, None)[0]
+                            match = re.search(r'"([^"\n]+\.exe)"', command, re.I)
+                            if match:
+                                candidates.append(Path(match.group(1)))
+                            else:
+                                match = re.search(r'([^\s]+\.exe)', command, re.I)
+                                if match:
+                                    candidates.append(Path(match.group(1)))
+                        except OSError:
+                            continue
+            except OSError:
+                continue
+
+        search_roots = [Path(value) for value in roots if value]
+        browser_names = {"360se.exe", "360chrome.exe", "360browser.exe", "chrome.exe", "msedge.exe", "qqbrowser.exe"}
+        for root in search_roots:
+            try:
+                for path in root.rglob("*.exe"):
+                    if path.name.lower() in browser_names:
+                        candidates.append(path)
+            except (OSError, PermissionError):
+                continue
+
+    seen: set[str] = set()
     for candidate in candidates:
+        key = str(candidate).lower()
+        if key in seen:
+            continue
+        seen.add(key)
         if candidate.is_file():
             return str(candidate)
     return None
@@ -270,6 +324,8 @@ class BrowserWorker:
         self.playwright = None
         self.contexts = {}
         self.pages = {}
+        self.browser_checked = False
+        self.browser_executable = None
         try:
             if sync_playwright is None:
                 self.ready.set()
@@ -319,7 +375,10 @@ class BrowserWorker:
             "viewport": {"width": 1440, "height": 900},
             "args": ["--disable-blink-features=AutomationControlled"],
         }
-        browser_executable = find_installed_browser()
+        if not self.browser_checked:
+            self.browser_executable = find_installed_browser()
+            self.browser_checked = True
+        browser_executable = self.browser_executable
         if browser_executable:
             self.log(f"使用已安装浏览器：{Path(browser_executable).name}")
             launch_options["executable_path"] = browser_executable
