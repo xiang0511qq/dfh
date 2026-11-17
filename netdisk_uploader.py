@@ -277,7 +277,7 @@ def click_text(page, words: tuple[str, ...], timeout: int = 2500) -> bool:
 
 
 def click_share_action(page, provider: Provider) -> bool:
-    words = provider.share_words + ("公开分享", "公开链接", "分享链接", "生成分享链接", "创建链接")
+    words = provider.share_words + ("分享文件", "公开分享", "公开链接", "分享链接", "生成分享链接", "创建分享链接", "创建链接", "复制链接")
     if click_text(page, words):
         return True
     selectors = (
@@ -352,24 +352,31 @@ def choose_uploaded_item(page, target: Path) -> bool:
         page.wait_for_timeout(1200)
     except Exception:
         pass
+    names = [target.name, target.stem]
+    patterns = [re.compile(re.escape(name), re.I) for name in names if name]
     for _ in range(40):
-        try:
-            rows = page.get_by_role("row").filter(has_text=re.compile(re.escape(target.name), re.I))
-            if rows.count() and rows.first.is_visible():
-                rows.first.click(timeout=3000)
-                return True
-        except Exception:
-            pass
-        for locator in (
-            page.get_by_text(target.name, exact=True),
-            page.get_by_text(re.compile(re.escape(target.name), re.I)),
-        ):
+        for pattern in patterns:
             try:
+                rows = page.get_by_role("row").filter(has_text=pattern)
+                if rows.count() and rows.first.is_visible():
+                    rows.first.click(timeout=3000)
+                    return True
+            except Exception:
+                pass
+            try:
+                locator = page.get_by_text(pattern)
                 if locator.count() and locator.first.is_visible():
                     locator.first.click(timeout=3000)
                     return True
             except Exception:
                 continue
+        try:
+            body = page.locator("body").inner_text(timeout=1500)
+            normalized = re.sub(r"\s+", "", body).lower()
+            if any(re.sub(r"\s+", "", name).lower() in normalized for name in names if name):
+                page.keyboard.press("Escape")
+        except Exception:
+            pass
         try:
             page.wait_for_timeout(500)
         except Exception:
@@ -378,29 +385,36 @@ def choose_uploaded_item(page, target: Path) -> bool:
 
 
 def extract_share_link(page, provider: Provider) -> Optional[str]:
-    """Read the official provider link, preferring the clipboard from “复制链接”."""
+    candidates: list[str] = []
     try:
-        value = page.evaluate("navigator.clipboard.readText()")
-        if isinstance(value, str):
-            for candidate in URL_RE.findall(value):
-                candidate = clean_url(candidate)
-                if is_official_share_url(candidate, provider):
-                    return candidate
+        candidates.append(page.locator("body").inner_text(timeout=5000))
     except Exception:
         pass
-    text = visible_text(page)
-    for candidate in URL_RE.findall(text):
-        candidate = clean_url(candidate)
-        if is_official_share_url(candidate, provider):
-            return candidate
+    for selector in ("input", "textarea", "[contenteditable='true']", "[data-clipboard-text]", "[data-url]", "[data-link]"):
+        try:
+            locator = page.locator(selector)
+            for item in locator.all():
+                for attr in ("value", "data-clipboard-text", "data-url", "data-link", "title", "aria-label"):
+                    value = item.get_attribute(attr, timeout=1000)
+                    if value:
+                        candidates.append(value)
+                text = item.inner_text(timeout=1000)
+                if text:
+                    candidates.append(text)
+        except Exception:
+            continue
     try:
-        hrefs = page.locator("a").evaluate_all("els => els.map(e => e.href).filter(Boolean)")
-        for href in reversed(hrefs):
-            if isinstance(href, str) and href.startswith("http"):
-                if is_official_share_url(href, provider):
-                    return clean_url(href)
+        candidates.append(page.evaluate("navigator.clipboard.readText()"))
     except Exception:
         pass
+    url_pattern = re.compile(r"(?:https?://|www\.)[^\s\"'<>，。；）)]+", re.I)
+    for text in candidates:
+        if not isinstance(text, str):
+            continue
+        for candidate in url_pattern.findall(text):
+            candidate = clean_url(candidate if candidate.startswith("http") else "https://" + candidate)
+            if is_official_share_url(candidate, provider):
+                return candidate
     return None
 
 
