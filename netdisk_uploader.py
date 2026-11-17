@@ -530,6 +530,34 @@ class BrowserWorker:
         self.pages[provider.key] = page
         return page
 
+    def _switch_to_background(self, provider: Provider) -> None:
+        if self.browser_mode != "bundled":
+            return
+        old_context = self.contexts.pop(provider.key, None)
+        old_browser = self.remote_browsers.pop(provider.key, None)
+        if old_browser:
+            try:
+                old_browser.close()
+            except Exception:
+                pass
+        if old_context:
+            try:
+                old_context.close()
+            except Exception:
+                pass
+        profile = PROFILE_DIR / provider.key
+        launch_options = {
+            "headless": True,
+            "accept_downloads": True,
+            "permissions": ["clipboard-read", "clipboard-write"],
+            "args": ["--disable-blink-features=AutomationControlled"],
+        }
+        context = self.playwright.chromium.launch_persistent_context(str(profile), **launch_options)
+        page = context.pages[0] if context.pages else context.new_page()
+        page.goto(provider.url, wait_until="domcontentloaded", timeout=30000)
+        self.contexts[provider.key] = context
+        self.pages[provider.key] = page
+
     def _do_open_selected(self, providers: list[Provider]) -> None:
         for provider in providers:
             try:
@@ -542,6 +570,8 @@ class BrowserWorker:
                         save_login_state(provider.key)
                         logged_in = True
                         self.log(f"{provider.name} 已登录，登录状态已保存")
+                        self._switch_to_background(provider)
+                        self.log(f"{provider.name} 登录窗口已关闭，后台会话已启动")
                         break
                     time.sleep(2)
                 if not logged_in:
