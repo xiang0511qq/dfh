@@ -854,17 +854,6 @@ class BrowserWorker:
         results: dict[str, str] = {}
         for provider in providers:
             page = self.pages.get(provider.key)
-            # Prefer the currently visible provider tab if the browser opened another tab.
-            try:
-                context = self.contexts.get(provider.key)
-                if context:
-                    for candidate in context.pages:
-                        if not candidate.is_closed() and any(domain in candidate.url.lower() for domain in provider.share_domains):
-                            page = candidate
-                            self.pages[provider.key] = page
-                            break
-            except Exception:
-                pass
             if page is None or page.is_closed():
                 try:
                     page = self._do_open_background_provider(provider)
