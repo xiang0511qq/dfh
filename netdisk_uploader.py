@@ -273,7 +273,7 @@ def click_text(page, words: tuple[str, ...], timeout: int = 2500) -> bool:
 
 
 def click_share_action(page, provider: Provider) -> bool:
-    words = provider.share_words + ("分享文件", "公开分享", "公开链接", "分享链接", "生成分享链接", "创建分享链接", "创建链接", "复制链接")
+    words = provider.share_words + ("分享文件", "公开分享", "公开链接", "分享链接", "生成分享链接", "创建分享链接", "创建分享", "确定分享", "生成链接", "创建链接", "复制链接")
     if click_text(page, words):
         return True
     selectors = (
@@ -311,15 +311,50 @@ def set_file_input(page, target: Path) -> bool:
 
 
 def click_upload_and_choose(page, provider: Provider, target: Path) -> bool:
-    for word in provider.upload_words:
-        locator = page.get_by_text(word, exact=True)
+    # Some providers keep a hidden file input in the page; use it first.
+    if set_file_input(page, target):
+        return True
+    upload_re = re.compile(r"(?:上传|添加文件|添加)", re.I)
+    locators = [
+        page.get_by_role("button", name=upload_re),
+        page.get_by_text(upload_re),
+        page.locator("button:has-text('上传'), [role='button']:has-text('上传'), a:has-text('上传')"),
+    ]
+    # Try the main upload button. It may open the chooser directly or a menu.
+    for locator in locators:
         try:
             if not locator.count() or not locator.first.is_visible():
                 continue
-            with page.expect_file_chooser(timeout=3500) as chooser_info:
+            try:
+                with page.expect_file_chooser(timeout=2500) as chooser_info:
+                    locator.first.click(timeout=2500)
+                chooser_info.value.set_files(str(target))
+                return True
+            except Exception:
                 locator.first.click(timeout=2500)
-            chooser_info.value.set_files(str(target))
-            return True
+            try:
+                page.wait_for_timeout(500)
+            except Exception:
+                pass
+            menu_words = ("上传文件夹", "上传文件", "选择文件夹", "选择文件") if target.is_dir() else ("上传文件", "选择文件")
+            for word in menu_words:
+                menu = page.get_by_text(word, exact=True)
+                try:
+                    if not menu.count() or not menu.first.is_visible():
+                        continue
+                    try:
+                        with page.expect_file_chooser(timeout=3000) as chooser_info:
+                            menu.first.click(timeout=2500)
+                        chooser_info.value.set_files(str(target))
+                        return True
+                    except Exception:
+                        menu.first.click(timeout=2500)
+                        if set_file_input(page, target):
+                            return True
+                except Exception:
+                    continue
+            if set_file_input(page, target):
+                return True
         except Exception:
             continue
     return set_file_input(page, target)
@@ -463,7 +498,7 @@ def create_share_link(page, provider: Provider, target: Path, log: Callable[[str
     # UC and Baidu expose a separate public-share choice after opening Share.
     if provider.public_share_words:
         click_text(page, provider.public_share_words, timeout=1800)
-    click_text(page, ("创建分享链接", "创建链接", "生成链接", "确定", "确认"), timeout=2000)
+    click_text(page, ("创建分享链接", "创建分享", "确定分享", "创建链接", "生成链接", "确定", "确认"), timeout=2000)
     time.sleep(1.2)
     try:
         page.wait_for_timeout(1200)
@@ -474,7 +509,7 @@ def create_share_link(page, provider: Provider, target: Path, log: Callable[[str
         page.evaluate("navigator.clipboard.writeText('')")
     except Exception:
         pass
-    if click_text(page, ("复制链接", "复制分享链接", "复制"), timeout=1800):
+    if click_text(page, ("复制链接", "复制分享链接", "一键复制", "复制"), timeout=1800):
         time.sleep(0.4)
         link = extract_share_link(page, provider)
         if link:
