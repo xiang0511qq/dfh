@@ -343,34 +343,56 @@ def wait_upload_finished(page, target: Path, log: Callable[[str], None]) -> None
 
 
 def choose_uploaded_item(page, target: Path) -> bool:
+    """Select the uploaded item without reloading away from the upload result."""
+    names = [target.name, target.stem]
     try:
-        page.reload(wait_until="domcontentloaded", timeout=30000)
         page.wait_for_timeout(1200)
     except Exception:
-        pass
-    names = [target.name, target.stem]
-    patterns = [re.compile(re.escape(name), re.I) for name in names if name]
-    for _ in range(40):
-        for pattern in patterns:
-            try:
-                rows = page.get_by_role("row").filter(has_text=pattern)
-                if rows.count() and rows.first.is_visible():
-                    rows.first.click(timeout=3000)
-                    return True
-            except Exception:
-                pass
+        time.sleep(1.2)
+    for _ in range(30):
+        for name in names:
+            if not name:
+                continue
+            pattern = re.compile(re.escape(name), re.I)
+            for selector in ("[role='row']", "tr", "li", "[class*='row']", "[class*='item']"):
+                try:
+                    rows = page.locator(selector).filter(has_text=pattern)
+                    if rows.count() and rows.first.is_visible():
+                        row = rows.first
+                        row.scroll_into_view_if_needed(timeout=1500)
+                        checks = row.locator("input[type='checkbox'], [role='checkbox'], [class*='checkbox'], [class*='check']")
+                        if checks.count() and checks.first.is_visible():
+                            checks.first.click(timeout=2500)
+                        else:
+                            row.click(timeout=2500)
+                        return True
+                except Exception:
+                    continue
             try:
                 locator = page.get_by_text(pattern)
                 if locator.count() and locator.first.is_visible():
-                    locator.first.click(timeout=3000)
+                    locator.first.scroll_into_view_if_needed(timeout=1500)
+                    locator.first.click(timeout=2500)
                     return True
             except Exception:
-                continue
+                pass
         try:
-            body = page.locator("body").inner_text(timeout=1500)
-            normalized = re.sub(r"\s+", "", body).lower()
-            if any(re.sub(r"\s+", "", name).lower() in normalized for name in names if name):
-                page.keyboard.press("Escape")
+            matched = page.evaluate("""(names) => {
+                const norm = s => (s || '').replace(/\\s+/g, '').toLowerCase();
+                const wanted = names.filter(Boolean).map(norm);
+                const all = [...document.querySelectorAll('body *')];
+                const leaf = all.find(el => {
+                    const text = norm(el.innerText || el.textContent);
+                    return text && wanted.some(n => text.includes(n)) && el.children.length <= 2 && el.getBoundingClientRect().width > 0;
+                });
+                if (!leaf) return false;
+                const row = leaf.closest('tr,[role="row"],li,[class*="row"],[class*="item"],[class*="file"]') || leaf;
+                const check = row.querySelector('input[type="checkbox"],[role="checkbox"],[class*="checkbox"],[class*="check"]');
+                (check || row).click();
+                return true;
+            }""", names)
+            if matched:
+                return True
         except Exception:
             pass
         try:
@@ -378,7 +400,6 @@ def choose_uploaded_item(page, target: Path) -> bool:
         except Exception:
             time.sleep(0.5)
     return False
-
 
 def extract_share_link(page, provider: Provider) -> Optional[str]:
     candidates: list[str] = []
