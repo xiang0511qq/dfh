@@ -528,6 +528,35 @@ class BrowserWorker:
             self.log(f"使用已安装浏览器：{Path(browser_executable).name}")
         else:
             self.log("未找到可用的系统浏览器，请先安装 Chrome、Edge、360、QQ、搜狗、2345或遨游浏览器")
+        # 360 安全浏览器对 Playwright 直启兼容性不稳定，改用它的可见远程调试窗口。
+        if is_360_browser(browser_executable):
+            port = debug_port_for(provider)
+            launch_args = [
+                browser_executable,
+                f"--remote-debugging-port={port}",
+                f"--user-data-dir={profile}",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--new-window",
+                "--start-maximized",
+                "--remote-allow-origins=*",
+                provider.url,
+            ]
+            try:
+                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+                subprocess.Popen(launch_args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
+                endpoint = wait_for_cdp(port)
+                browser = self.playwright.chromium.connect_over_cdp(endpoint)
+                context = browser.contexts[0] if browser.contexts else browser.new_context()
+                page = context.pages[0] if context.pages else context.new_page()
+                page.goto(provider.url, wait_until="domcontentloaded", timeout=30000)
+                page.bring_to_front()
+                self.remote_browsers[provider.key] = browser
+                self.contexts[provider.key] = context
+                self.pages[provider.key] = page
+                return page
+            except Exception as exc:
+                raise RuntimeError(f"360浏览器登录窗口打开失败：{exc}") from exc
         launch_options = {
             "headless": False,
             "accept_downloads": True,
