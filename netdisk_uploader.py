@@ -863,7 +863,7 @@ class App(tk.Tk):
         root.pack(fill="both", expand=True)
 
         ttk.Label(root, text=APP_TITLE, font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
-        ttk.Label(root, text="选择本地文件或文件夹，打开已登录网盘后批量上传并生成分享链接", foreground="#555").pack(anchor="w", pady=(3, 14))
+        ttk.Label(root, text="选择一次文件或文件夹，点击一键按钮后自动上传并生成官方分享链接", foreground="#555").pack(anchor="w", pady=(3, 14))
 
         path_box = ttk.LabelFrame(root, text="本地内容", padding=10)
         path_box.pack(fill="x")
@@ -889,9 +889,9 @@ class App(tk.Tk):
 
         action_box = ttk.Frame(root)
         action_box.pack(fill="x", pady=12)
-        self.upload_btn = ttk.Button(action_box, text="上传文件/文件夹", command=self.start_upload_only)
+        self.upload_btn = ttk.Button(action_box, text="仅上传（不生成链接）", command=self.start_upload_only)
         self.upload_btn.pack(side="left")
-        self.share_btn = ttk.Button(action_box, text="上传并生成分享链接", command=self.start_upload)
+        self.share_btn = ttk.Button(action_box, text="一键上传并生成官方链接", command=self.start_upload)
         self.share_btn.pack(side="left", padx=8)
         ttk.Button(action_box, text="复制全部链接", command=self.copy_links).pack(side="left", padx=8)
         ttk.Button(action_box, text="清空结果", command=lambda: self.links.delete("1.0", "end")).pack(side="left")
@@ -913,7 +913,7 @@ class App(tk.Tk):
         log_scroll.pack(side="right", fill="y")
         self.log_text.configure(yscrollcommand=log_scroll.set)
 
-        ttk.Label(root, text="首次使用请在各网盘网页窗口中手动登录。登录状态保存在本程序目录的 browser_profiles 文件夹。", foreground="#666").pack(anchor="w", pady=(8, 0))
+        ttk.Label(root, text="登录只需完成一次；选择路径后点击“一键上传并生成官方链接”，软件会自动处理四个网盘。", foreground="#666").pack(anchor="w", pady=(8, 0))
 
     def auto_check_saved_sessions(self):
         providers = [p for p in PROVIDERS if load_login_state().get(p.key)]
@@ -1043,7 +1043,7 @@ class App(tk.Tk):
         if target is None:
             return
         self.links.delete("1.0", "end")
-        self._set_busy(True, "正在上传并生成分享链接，请稍候")
+        self._set_busy(True, "正在自动上传并生成官方分享链接，请勿手动操作网页")
         threading.Thread(target=self._upload_worker, args=(providers, target, True), daemon=True).start()
 
     def start_upload_only(self):
