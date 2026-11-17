@@ -196,6 +196,16 @@ def save_login_state(provider_key: str) -> None:
         pass
 
 
+def clear_login_state(provider_key: str) -> None:
+    state = load_login_state()
+    if provider_key in state:
+        state.pop(provider_key, None)
+        try:
+            LOGIN_STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+
 def saved_login_label(provider_key: str) -> str:
     value = load_login_state().get(provider_key)
     if not value:
@@ -204,10 +214,10 @@ def saved_login_label(provider_key: str) -> str:
         saved_at = datetime.fromisoformat(value)
         remaining = 30 - (datetime.now() - saved_at).days
     except ValueError:
-        return "未登录"
+        return "需重新登录"
     if remaining <= 0:
-        return "登录已过期"
-    return f"已登录（剩余{remaining}天）"
+        return "需重新登录"
+    return f"待验证（剩余{remaining}天）"
 
 
 def page_looks_logged_in(page) -> bool:
@@ -711,6 +721,8 @@ class BrowserWorker:
             result[provider.key] = logged_in
             if logged_in:
                 save_login_state(provider.key)
+            else:
+                clear_login_state(provider.key)
         return result
 
     def check_login(self, providers: list[Provider]) -> dict[str, bool]:
@@ -744,6 +756,7 @@ class App(tk.Tk):
         self.login_window_status_vars: dict[str, tk.StringVar] = {}
         self._build_ui()
         self.after(150, self._drain_events)
+        self.after(1200, self.auto_check_saved_sessions)
         self.protocol("WM_DELETE_WINDOW", self._close)
 
     def _build_ui(self):
@@ -802,6 +815,26 @@ class App(tk.Tk):
         self.log_text.configure(yscrollcommand=log_scroll.set)
 
         ttk.Label(root, text="首次使用请在各网盘网页窗口中手动登录。登录状态保存在本程序目录的 browser_profiles 文件夹。", foreground="#666").pack(anchor="w", pady=(8, 0))
+
+    def auto_check_saved_sessions(self):
+        providers = [p for p in PROVIDERS if load_login_state().get(p.key)]
+        if not providers:
+            return
+        self._set_busy(True, "正在后台验证保存的登录状态")
+        threading.Thread(target=self._auto_check_worker, args=(providers,), daemon=True).start()
+
+    def _auto_check_worker(self, providers: list[Provider]):
+        try:
+            if self.worker is None:
+                self.worker = BrowserWorker(self._log)
+            self.worker.open_background_selected(providers)
+            results = self.worker.check_login(providers)
+            self.events.put(("login_status", results))
+            self.events.put(("status", "保存的登录状态已验证"))
+        except Exception as exc:
+            self.events.put(("error", str(exc)))
+        finally:
+            self.events.put(("busy", False))
 
     def selected_providers(self) -> list[Provider]:
         return [p for p in PROVIDERS if self.check_vars[p.key].get()]
