@@ -505,8 +505,19 @@ class BrowserWorker:
     def _do_open_selected(self, providers: list[Provider]) -> None:
         for provider in providers:
             try:
-                self.log(f"打开 {provider.name}")
-                self._do_open_provider(provider)
+                self.log(f"打开 {provider.name} 登录窗口")
+                page = self._do_open_provider(provider)
+                self.log(f"请在 {provider.name} 窗口完成登录，登录成功后自动继续下一个网盘")
+                logged_in = False
+                for _ in range(60):
+                    if page_looks_logged_in(page):
+                        save_login_state(provider.key)
+                        logged_in = True
+                        self.log(f"{provider.name} 已登录，登录状态已保存")
+                        break
+                    time.sleep(2)
+                if not logged_in:
+                    self.log(f"{provider.name} 等待登录超时，请点击“检测登录状态”后继续")
             except Exception as exc:
                 self.log(f"{provider.name} 打开失败：{exc}")
 
