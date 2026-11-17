@@ -310,6 +310,88 @@ def set_file_input(page, target: Path) -> bool:
     return False
 
 
+def _find_native_picker_window():
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        matches = []
+        EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def callback(hwnd, _):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            buf = ctypes.create_unicode_buffer(260)
+            user32.GetWindowTextW(hwnd, buf, 260)
+            title = buf.value
+            if any(word in title for word in ("选择文件夹", "打开", "选择文件")):
+                matches.append(hwnd)
+                return False
+            return True
+        user32.EnumWindows(EnumWindowsProc(callback), 0)
+        return matches[0] if matches else None
+    except Exception:
+        return None
+
+
+def _fill_native_picker(target: Path, stop_event: threading.Event) -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        WM_SETTEXT = 0x000C
+        BM_CLICK = 0x00F5
+        VK_RETURN = 0x0D
+        deadline = time.time() + 25
+        while time.time() < deadline and not stop_event.is_set():
+            hwnd = _find_native_picker_window()
+            if not hwnd:
+                time.sleep(0.25)
+                continue
+            edits = []
+            buttons = []
+            ChildProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            def child_callback(child, _):
+                cls_buf = ctypes.create_unicode_buffer(128)
+                text_buf = ctypes.create_unicode_buffer(260)
+                user32.GetClassNameW(child, cls_buf, 128)
+                user32.GetWindowTextW(child, text_buf, 260)
+                cls = cls_buf.value.lower()
+                text = text_buf.value
+                if cls == "edit":
+                    edits.append(child)
+                if cls == "button":
+                    buttons.append((child, text))
+                return True
+            user32.EnumChildWindows(hwnd, ChildProc(child_callback), 0)
+            if edits:
+                user32.SetForegroundWindow(hwnd)
+                user32.SendMessageW(edits[-1], WM_SETTEXT, 0, str(target))
+                chosen = None
+                for button, text in buttons:
+                    if any(word in text for word in ("选择文件夹", "打开", "选择")):
+                        chosen = button
+                        break
+                if chosen:
+                    user32.SendMessageW(chosen, BM_CLICK, 0, 0)
+                else:
+                    user32.PostMessageW(hwnd, 0x0100, VK_RETURN, 0)
+                return
+            time.sleep(0.25)
+    except Exception:
+        return
+
+
+def _arm_native_picker(target: Path):
+    stop_event = threading.Event()
+    thread = threading.Thread(target=_fill_native_picker, args=(target, stop_event), daemon=True)
+    thread.start()
+    return stop_event
+
+
 def click_upload_and_choose(page, provider: Provider, target: Path) -> bool:
     # Some providers keep a hidden file input in the page; use it first.
     if set_file_input(page, target):
@@ -325,13 +407,20 @@ def click_upload_and_choose(page, provider: Provider, target: Path) -> bool:
         try:
             if not locator.count() or not locator.first.is_visible():
                 continue
+            picker_stop = _arm_native_picker(target)
             try:
                 with page.expect_file_chooser(timeout=2500) as chooser_info:
                     locator.first.click(timeout=2500)
+                picker_stop.set()
                 chooser_info.value.set_files(str(target))
                 return True
             except Exception:
-                locator.first.click(timeout=2500)
+                try:
+                    locator.first.click(timeout=2500)
+                except Exception:
+                    pass
+            finally:
+                picker_stop.set()
             try:
                 page.wait_for_timeout(500)
             except Exception:
@@ -342,15 +431,22 @@ def click_upload_and_choose(page, provider: Provider, target: Path) -> bool:
                 try:
                     if not menu.count() or not menu.first.is_visible():
                         continue
+                    picker_stop = _arm_native_picker(target)
                     try:
                         with page.expect_file_chooser(timeout=3000) as chooser_info:
                             menu.first.click(timeout=2500)
+                        picker_stop.set()
                         chooser_info.value.set_files(str(target))
                         return True
                     except Exception:
-                        menu.first.click(timeout=2500)
+                        try:
+                            menu.first.click(timeout=2500)
+                        except Exception:
+                            pass
                         if set_file_input(page, target):
                             return True
+                    finally:
+                        picker_stop.set()
                 except Exception:
                     continue
             if set_file_input(page, target):
