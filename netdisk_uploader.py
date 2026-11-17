@@ -325,21 +325,37 @@ def click_upload_and_choose(page, provider: Provider, target: Path) -> bool:
     return set_file_input(page, target)
 
 
-def wait_upload_finished(page, target: Path, log: Callable[[str], None]) -> None:
+def wait_upload_finished(page, target: Path, log: Callable[[str], None]) -> bool:
     name = target.name
-    end_at = time.time() + 90
+    normalized_name = re.sub(r"\\s+", "", name).lower() if name else ""
+    end_at = time.time() + 120
+    completion_seen = False
+    next_refresh = time.time() + 8
     last_text = ""
     while time.time() < end_at:
         text = visible_text(page)
+        normalized_text = re.sub(r"\\s+", "", text).lower()
         if text != last_text:
             last_text = text
-            if any(token in text for token in ("上传完成", "上传成功", "已完成", "完成上传")):
-                log("检测到上传完成")
-                return
-        if name and name in text and any(token in text for token in ("100%", "完成", "成功")):
-            return
+            if any(token in text for token in ("上传完成", "上传成功", "已完成", "完成上传", "传输完成")):
+                if not completion_seen:
+                    log("检测到上传完成提示，正在确认文件已进入网盘")
+                completion_seen = True
+        if completion_seen and normalized_name and normalized_name in normalized_text:
+            log("已在网盘文件列表确认上传完成")
+            return True
+        if completion_seen and not normalized_name:
+            return True
+        if completion_seen and time.time() >= next_refresh:
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(1200)
+                next_refresh = time.time() + 8
+            except Exception:
+                next_refresh = time.time() + 8
         time.sleep(1)
-    log("上传页面超过等待时间，继续尝试获取分享链接")
+    log("未能在网盘文件列表确认文件，已停止后续分享操作")
+    return False
 
 
 def choose_uploaded_item(page, target: Path) -> bool:
@@ -642,7 +658,10 @@ class BrowserWorker:
                 if not click_upload_and_choose(page, provider, target):
                     self.log(f"[{provider.name}] 未找到上传入口，请在网页中手动点击上传")
                     continue
-                wait_upload_finished(page, target, lambda msg, p=provider: self.log(f"[{p.name}] {msg}"))
+                upload_confirmed = wait_upload_finished(page, target, lambda msg, p=provider: self.log(f"[{p.name}] {msg}"))
+                if not upload_confirmed:
+                    self.log(f"[{provider.name}] 上传未确认完成，跳过分享链接生成")
+                    continue
                 if not create_links:
                     results[provider.name] = "已上传"
                     self.log(f"[{provider.name}] 上传完成")
