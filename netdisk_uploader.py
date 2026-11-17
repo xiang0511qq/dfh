@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
 import shutil
+import subprocess
 import threading
+import urllib.request
+from datetime import datetime
 
 if sys.platform == "win32":
     import winreg
@@ -24,7 +28,13 @@ except ImportError:
 
 APP_TITLE = "多网盘一键上传与分享"
 APP_DIR = Path(__file__).resolve().parent
-PROFILE_DIR = APP_DIR / "browser_profiles"
+if sys.platform == "win32":
+    DATA_DIR = Path(os.environ.get("LOCALAPPDATA", str(APP_DIR))) / "NetdiskUploader"
+else:
+    DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", str(APP_DIR))) / "NetdiskUploader"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+PROFILE_DIR = DATA_DIR / "browser_profiles"
+LOGIN_STATE_FILE = DATA_DIR / "login_state.json"
 
 
 @dataclass(frozen=True)
@@ -164,6 +174,70 @@ def find_installed_browser() -> Optional[str]:
         if candidate.is_file():
             return str(candidate)
     return None
+
+
+def load_login_state() -> dict[str, str]:
+    try:
+        return json.loads(LOGIN_STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_login_state(provider_key: str) -> None:
+    state = load_login_state()
+    state[provider_key] = datetime.now().isoformat(timespec="seconds")
+    try:
+        LOGIN_STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def saved_login_label(provider_key: str) -> str:
+    value = load_login_state().get(provider_key)
+    if not value:
+        return "未登录"
+    try:
+        saved_at = datetime.fromisoformat(value)
+        remaining = 30 - (datetime.now() - saved_at).days
+    except ValueError:
+        return "未登录"
+    if remaining <= 0:
+        return "登录已过期"
+    return f"已登录（剩余{remaining}天）"
+
+
+def page_looks_logged_in(page) -> bool:
+    try:
+        text = page.locator("body").inner_text(timeout=5000)
+    except Exception:
+        return False
+    if not text.strip():
+        return False
+    login_prompts = ("扫码登录", "手机号登录", "立即登录", "登录/注册")
+    logged_markers = ("退出登录", "我的网盘", "我的文件", "上传", "新建文件夹", "个人中心")
+    if any(marker in text for marker in login_prompts) and not any(marker in text for marker in logged_markers):
+        return False
+    return any(marker in text for marker in logged_markers)
+
+
+def is_360_browser(path: Optional[str]) -> bool:
+    return bool(path) and Path(path).name.lower() in {"360se.exe", "360chrome.exe", "360browser.exe"}
+
+
+def debug_port_for(provider: Provider) -> int:
+    return {"quark": 9222, "uc": 9223, "xunlei": 9224, "baidu": 9225}.get(provider.key, 9228)
+
+
+def wait_for_cdp(port: int) -> str:
+    endpoint = f"http://127.0.0.1:{port}"
+    for _ in range(30):
+        try:
+            with urllib.request.urlopen(endpoint + "/json/version", timeout=1) as response:
+                if response.status == 200:
+                    return endpoint
+        except Exception:
+            time.sleep(0.5)
+    raise RuntimeError("360浏览器远程调试端口未响应")
 
 
 def visible_text(page) -> str:
@@ -326,6 +400,7 @@ class BrowserWorker:
         self.pages = {}
         self.browser_checked = False
         self.browser_executable = None
+        self.remote_browsers = {}
         try:
             if sync_playwright is None:
                 self.ready.set()
@@ -343,6 +418,11 @@ class BrowserWorker:
                 result_queue.put((True, getattr(self, f"_do_{method}")(*args)))
             except Exception as exc:
                 result_queue.put((False, exc))
+        for browser in list(self.remote_browsers.values()):
+            try:
+                browser.close()
+            except Exception:
+                pass
         for context in list(self.contexts.values()):
             try:
                 context.close()
@@ -368,6 +448,36 @@ class BrowserWorker:
     def _do_open_provider(self, provider: Provider):
         profile = PROFILE_DIR / provider.key
         profile.mkdir(parents=True, exist_ok=True)
+        if is_360_browser(browser_executable):
+            port = debug_port_for(provider)
+            launch_args = [
+                browser_executable,
+                f"--remote-debugging-port={port}",
+                f"--user-data-dir={profile}",
+                "--no-first-run",
+                "--no-default-browser-check",
+                provider.url,
+            ]
+            try:
+                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+                subprocess.Popen(
+                    launch_args,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=creationflags,
+                )
+                endpoint = wait_for_cdp(port)
+                browser = self.playwright.chromium.connect_over_cdp(endpoint)
+                context = browser.contexts[0] if browser.contexts else browser.new_context()
+                page = context.pages[0] if context.pages else context.new_page()
+                page.goto(provider.url, wait_until="domcontentloaded", timeout=30000)
+                self.remote_browsers[provider.key] = browser
+                self.contexts[provider.key] = context
+                self.pages[provider.key] = page
+                return page
+            except Exception as exc:
+                raise RuntimeError(f"360浏览器远程登录窗口打开失败：{exc}") from exc
+
         launch_options = {
             "headless": False,
             "accept_downloads": True,
@@ -428,6 +538,19 @@ class BrowserWorker:
     def open_selected(self, providers: list[Provider]) -> None:
         self._call("open_selected", providers)
 
+    def _do_check_login(self, providers: list[Provider]) -> dict[str, bool]:
+        result = {}
+        for provider in providers:
+            page = self.pages.get(provider.key)
+            logged_in = bool(page and not page.is_closed() and page_looks_logged_in(page))
+            result[provider.key] = logged_in
+            if logged_in:
+                save_login_state(provider.key)
+        return result
+
+    def check_login(self, providers: list[Provider]) -> dict[str, bool]:
+        return self._call("check_login", providers)
+
     def upload_selected(self, providers: list[Provider], target: Path) -> dict[str, str]:
         return self._call("upload_selected", providers, target)
 
@@ -448,6 +571,7 @@ class App(tk.Tk):
         self.path_var = tk.StringVar()
         self.status_var = tk.StringVar(value="请选择文件或文件夹")
         self.check_vars: dict[str, tk.BooleanVar] = {}
+        self.login_status_vars: dict[str, tk.StringVar] = {}
         self._build_ui()
         self.after(150, self._drain_events)
         self.protocol("WM_DELETE_WINDOW", self._close)
@@ -470,8 +594,14 @@ class App(tk.Tk):
         for provider in PROVIDERS:
             var = tk.BooleanVar(value=True)
             self.check_vars[provider.key] = var
-            ttk.Checkbutton(providers_box, text=provider.name, variable=var).pack(side="left", padx=(0, 18))
+            item = ttk.Frame(providers_box)
+            item.pack(side="left", padx=(0, 12))
+            ttk.Checkbutton(item, text=provider.name, variable=var).pack(side="left")
+            status_var = tk.StringVar(value=saved_login_label(provider.key))
+            self.login_status_vars[provider.key] = status_var
+            ttk.Label(item, textvariable=status_var, foreground="#16803c").pack(side="left", padx=(4, 0))
         ttk.Button(providers_box, text="打开并登录", command=self.open_login).pack(side="right")
+        ttk.Button(providers_box, text="检测登录状态", command=self.refresh_login).pack(side="right", padx=(0, 8))
 
         action_box = ttk.Frame(root)
         action_box.pack(fill="x", pady=12)
@@ -538,11 +668,41 @@ class App(tk.Tk):
         try:
             self.worker = BrowserWorker(self._log)
             self.worker.open_selected(providers)
-            self.events.put(("status", "网盘窗口已打开，可手动登录"))
+            login_results = self.worker.check_login(providers)
+            self.events.put(("login_status", login_results))
+            self.events.put(("status", "网盘窗口已打开。登录完成后点击“检测登录状态”"))
         except Exception as exc:
             self.events.put(("error", str(exc)))
         finally:
             self.events.put(("busy", False))
+
+    def refresh_login(self):
+        providers = self.selected_providers()
+        if not providers:
+            messagebox.showwarning("缺少网盘", "请至少勾选一个网盘。")
+            return
+        if self.worker is None:
+            messagebox.showinfo("先打开登录窗口", "请先点击“打开并登录”，再检测登录状态。")
+            return
+        self._set_busy(True, "正在检测登录状态")
+        threading.Thread(target=self._refresh_login_worker, args=(providers,), daemon=True).start()
+
+    def _refresh_login_worker(self, providers: list[Provider]):
+        try:
+            results = self.worker.check_login(providers)
+            self.events.put(("login_status", results))
+            self.events.put(("status", "登录状态已更新"))
+        except Exception as exc:
+            self.events.put(("error", str(exc)))
+        finally:
+            self.events.put(("busy", False))
+
+    def _apply_login_status(self, results: dict[str, bool]):
+        for provider in PROVIDERS:
+            if results.get(provider.key):
+                self.login_status_vars[provider.key].set(saved_login_label(provider.key))
+            elif provider.key in results:
+                self.login_status_vars[provider.key].set("未登录")
 
     def start_upload(self):
         target, providers = self._validate()
@@ -581,6 +741,8 @@ class App(tk.Tk):
                         self.links.insert("end", f"{name}\n{link}\n\n")
                 elif kind == "status":
                     self.status_var.set(str(payload))
+                elif kind == "login_status":
+                    self._apply_login_status(payload)
                 elif kind == "busy":
                     self._set_busy(bool(payload))
                 elif kind == "error":
