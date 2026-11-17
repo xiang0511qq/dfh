@@ -504,7 +504,11 @@ class BrowserWorker:
             "accept_downloads": True,
             "permissions": ["clipboard-read", "clipboard-write"],
             "viewport": {"width": 1440, "height": 900},
-            "args": ["--disable-blink-features=AutomationControlled"],
+            "args": [
+                "--disable-blink-features=AutomationControlled",
+                f"--app={provider.url}",
+                "--start-maximized",
+            ],
         }
         if browser_executable:
             launch_options["executable_path"] = browser_executable
