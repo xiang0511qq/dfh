@@ -35,12 +35,6 @@ else:
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 PROFILE_DIR = DATA_DIR / "browser_profiles"
 LOGIN_STATE_FILE = DATA_DIR / "login_state.json"
-BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", str(APP_DIR)))
-BUNDLED_BROWSER_DIR = BUNDLE_DIR / "ms-playwright"
-if BUNDLED_BROWSER_DIR.exists():
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(BUNDLED_BROWSER_DIR)
-
-
 @dataclass(frozen=True)
 class Provider:
     key: str
@@ -217,7 +211,7 @@ def saved_login_label(provider_key: str) -> str:
         return "需重新登录"
     if remaining <= 0:
         return "需重新登录"
-    return f"待验证（剩余{remaining}天）"
+    return f"未验证（剩余{remaining}天）"
 
 
 def page_looks_logged_in(page) -> bool:
@@ -527,51 +521,13 @@ class BrowserWorker:
         profile = PROFILE_DIR / provider.key
         profile.mkdir(parents=True, exist_ok=True)
         if not self.browser_checked:
-            if BUNDLED_BROWSER_DIR.exists():
-                self.browser_mode = "bundled"
-                self.browser_executable = None
-            else:
-                self.browser_executable = find_installed_browser()
+            self.browser_executable = find_installed_browser()
             self.browser_checked = True
         browser_executable = self.browser_executable
-        if self.browser_mode == "bundled":
-            self.log("使用软件内置浏览器")
-        elif browser_executable:
+        if browser_executable:
             self.log(f"使用已安装浏览器：{Path(browser_executable).name}")
-        if is_360_browser(browser_executable):
-            port = debug_port_for(provider)
-            launch_args = [
-                browser_executable,
-                f"--remote-debugging-port={port}",
-                f"--user-data-dir={profile}",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--new-window",
-                "--start-maximized",
-                "--remote-allow-origins=*",
-                provider.url,
-            ]
-            try:
-                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
-                subprocess.Popen(
-                    launch_args,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    creationflags=creationflags,
-                )
-                endpoint = wait_for_cdp(port)
-                browser = self.playwright.chromium.connect_over_cdp(endpoint)
-                context = browser.contexts[0] if browser.contexts else browser.new_context()
-                page = context.pages[0] if context.pages else context.new_page()
-                page.goto(provider.url, wait_until="domcontentloaded", timeout=30000)
-                page.bring_to_front()
-                self.remote_browsers[provider.key] = browser
-                self.contexts[provider.key] = context
-                self.pages[provider.key] = page
-                return page
-            except Exception as exc:
-                raise RuntimeError(f"360浏览器远程登录窗口打开失败：{exc}") from exc
-
+        else:
+            self.log("未找到可用的系统浏览器，请先安装 Chrome、Edge、360、QQ、搜狗、2345或遨游浏览器")
         launch_options = {
             "headless": False,
             "accept_downloads": True,
@@ -579,14 +535,13 @@ class BrowserWorker:
             "viewport": {"width": 1440, "height": 900},
             "args": [
                 "--disable-blink-features=AutomationControlled",
-                f"--app={provider.url}",
                 "--start-maximized",
+                "--no-first-run",
+                "--no-default-browser-check",
             ],
         }
         if browser_executable:
             launch_options["executable_path"] = browser_executable
-        elif self.browser_mode != "bundled":
-            self.log("未找到可用的 Chromium 浏览器，请先安装 Chrome、Edge、360、QQ、搜狗、2345或遨游浏览器")
         context = self.playwright.chromium.launch_persistent_context(str(profile), **launch_options)
         page = context.pages[0] if context.pages else context.new_page()
         page.goto(provider.url, wait_until="domcontentloaded", timeout=30000)
@@ -596,57 +551,12 @@ class BrowserWorker:
         return page
 
     def _switch_to_background(self, provider: Provider) -> None:
-        if self.browser_mode != "bundled":
-            return
-        old_context = self.contexts.pop(provider.key, None)
-        old_browser = self.remote_browsers.pop(provider.key, None)
-        if old_browser:
-            try:
-                old_browser.close()
-            except Exception:
-                pass
-        if old_context:
-            try:
-                old_context.close()
-            except Exception:
-                pass
-        profile = PROFILE_DIR / provider.key
-        launch_options = {
-            "headless": True,
-            "accept_downloads": True,
-            "permissions": ["clipboard-read", "clipboard-write"],
-            "args": ["--disable-blink-features=AutomationControlled"],
-        }
-        context = self.playwright.chromium.launch_persistent_context(str(profile), **launch_options)
-        page = context.pages[0] if context.pages else context.new_page()
-        page.goto(provider.url, wait_until="domcontentloaded", timeout=30000)
-        self.contexts[provider.key] = context
-        self.pages[provider.key] = page
+        return None
 
     def _do_open_background_provider(self, provider: Provider):
-        profile = PROFILE_DIR / provider.key
-        profile.mkdir(parents=True, exist_ok=True)
-        if not self.browser_checked:
-            if BUNDLED_BROWSER_DIR.exists():
-                self.browser_mode = "bundled"
-                self.browser_executable = None
-            else:
-                self.browser_executable = find_installed_browser()
-            self.browser_checked = True
-        launch_options = {
-            "headless": True,
-            "accept_downloads": True,
-            "permissions": ["clipboard-read", "clipboard-write"],
-            "args": ["--disable-blink-features=AutomationControlled"],
-        }
-        if self.browser_executable:
-            launch_options["executable_path"] = self.browser_executable
-        context = self.playwright.chromium.launch_persistent_context(str(profile), **launch_options)
-        page = context.pages[0] if context.pages else context.new_page()
-        page.goto(provider.url, wait_until="domcontentloaded", timeout=30000)
-        self.contexts[provider.key] = context
-        self.pages[provider.key] = page
-        return page
+        # Keep using the visible persistent system-browser page so uploads and shares
+        # operate on the same authenticated session the user can see.
+        return self._do_open_provider(provider)
 
     def _do_open_background_selected(self, providers: list[Provider]) -> None:
         for provider in providers:
@@ -668,8 +578,6 @@ class BrowserWorker:
                         save_login_state(provider.key)
                         logged_in = True
                         self.log(f"{provider.name} 已登录，登录状态已保存")
-                        self._switch_to_background(provider)
-                        self.log(f"{provider.name} 登录窗口已关闭，后台会话已启动")
                         break
                     time.sleep(2)
                 if not logged_in:
@@ -756,7 +664,6 @@ class App(tk.Tk):
         self.login_window_status_vars: dict[str, tk.StringVar] = {}
         self._build_ui()
         self.after(150, self._drain_events)
-        self.after(1200, self.auto_check_saved_sessions)
         self.protocol("WM_DELETE_WINDOW", self._close)
 
     def _build_ui(self):
@@ -918,7 +825,7 @@ class App(tk.Tk):
         try:
             if self.worker is None:
                 self.worker = BrowserWorker(self._log)
-                self.worker.open_background_selected(providers)
+                self.worker.open_selected(providers)
             results = self.worker.check_login(providers)
             self.events.put(("login_status", results))
             self.events.put(("status", "登录状态已更新"))
@@ -930,7 +837,7 @@ class App(tk.Tk):
     def _apply_login_status(self, results: dict[str, bool]):
         for provider in PROVIDERS:
             if results.get(provider.key):
-                label = saved_login_label(provider.key)
+                label = f"已登录（剩余{30}天）"
                 self.login_status_vars[provider.key].set(label)
                 if provider.key in self.login_window_status_vars:
                     self.login_window_status_vars[provider.key].set(label)
@@ -959,7 +866,7 @@ class App(tk.Tk):
         try:
             if self.worker is None:
                 self.worker = BrowserWorker(self._log)
-                self.worker.open_background_selected(providers)
+                self.worker.open_selected(providers)
             results = self.worker.upload_selected(providers, target) if create_links else self.worker.upload_only(providers, target)
             self.events.put(("results", results))
             status = "上传并生成链接完成" if create_links else "文件或文件夹上传完成"
