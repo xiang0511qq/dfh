@@ -255,25 +255,39 @@ def visible_text(page) -> str:
         return ""
 
 
+def _page_contexts(page):
+    contexts = [page]
+    try:
+        for frame in page.frames:
+            if frame != page.main_frame:
+                contexts.append(frame)
+    except Exception:
+        pass
+    return contexts
+
+
 def click_text(page, words: tuple[str, ...], timeout: int = 2500) -> bool:
-    for word in words:
-        candidates = [
-            page.get_by_role("button", name=re.compile(re.escape(word), re.I)),
-            page.get_by_text(word, exact=True),
-            page.get_by_text(re.compile(re.escape(word), re.I)),
-        ]
-        for locator in candidates:
-            try:
-                if locator.count() and locator.first.is_visible():
-                    locator.first.click(timeout=timeout)
-                    return True
-            except Exception:
-                continue
+    # Search the complete visible page, including same-origin/cross-origin iframes.
+    for context in _page_contexts(page):
+        for word in words:
+            candidates = [
+                context.get_by_role("button", name=re.compile(re.escape(word), re.I)),
+                context.get_by_text(word, exact=True),
+                context.get_by_text(re.compile(re.escape(word), re.I)),
+            ]
+            for locator in candidates:
+                try:
+                    if locator.count() and locator.first.is_visible():
+                        locator.first.scroll_into_view_if_needed(timeout=1200)
+                        locator.first.click(timeout=timeout)
+                        return True
+                except Exception:
+                    continue
     return False
 
 
 def click_share_action(page, provider: Provider) -> bool:
-    words = provider.share_words + ("分享文件", "公开分享", "公开链接", "分享链接", "生成分享链接", "创建分享链接", "创建分享", "确定分享", "生成链接", "创建链接", "复制链接")
+    words = provider.share_words + ("分享文件", "公开分享", "公开链接", "分享链接", "生成分享链接", "创建分享链接", "创建分享", "确定分享", "生成链接", "创建链接", "复制链接", "一键复制")
     if click_text(page, words):
         return True
     selectors = (
@@ -281,14 +295,16 @@ def click_share_action(page, provider: Provider) -> bool:
         '[class*="share"]', 'button:has-text("分享")',
         '[aria-label*="公开"]', '[title*="公开"]',
     )
-    for selector in selectors:
-        try:
-            locator = page.locator(selector)
-            if locator.count() and locator.first.is_visible():
-                locator.first.click(timeout=2500)
-                return True
-        except Exception:
-            continue
+    for context in _page_contexts(page):
+        for selector in selectors:
+            try:
+                locator = context.locator(selector)
+                if locator.count() and locator.first.is_visible():
+                    locator.first.scroll_into_view_if_needed(timeout=1200)
+                    locator.first.click(timeout=2500)
+                    return True
+            except Exception:
+                continue
     if click_text(page, ("更多", "操作", "菜单")):
         return click_text(page, words)
     return False
@@ -550,23 +566,38 @@ def choose_uploaded_item(page, target: Path) -> bool:
 
 def extract_share_link(page, provider: Provider) -> Optional[str]:
     candidates: list[str] = []
-    try:
-        candidates.append(page.locator("body").inner_text(timeout=5000))
-    except Exception:
-        pass
-    for selector in ("input", "textarea", "[contenteditable='true']", "[data-clipboard-text]", "[data-url]", "[data-link]"):
+    # Search all visible text and controls across the whole page and every iframe.
+    for context in _page_contexts(page):
         try:
-            locator = page.locator(selector)
-            for item in locator.all():
-                for attr in ("value", "data-clipboard-text", "data-url", "data-link", "title", "aria-label"):
-                    value = item.get_attribute(attr, timeout=1000)
-                    if value:
-                        candidates.append(value)
-                text = item.inner_text(timeout=1000)
-                if text:
-                    candidates.append(text)
+            candidates.append(context.locator("body").inner_text(timeout=5000))
         except Exception:
-            continue
+            pass
+        for selector in ("input", "textarea", "[contenteditable='true']", "[data-clipboard-text]", "[data-url]", "[data-link]", "a"):
+            try:
+                locator = context.locator(selector)
+                for item in locator.all():
+                    for attr in ("value", "href", "data-clipboard-text", "data-url", "data-link", "title", "aria-label"):
+                        value = item.get_attribute(attr, timeout=1000)
+                        if value:
+                            candidates.append(value)
+                    try:
+                        text = item.inner_text(timeout=1000)
+                        if text:
+                            candidates.append(text)
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+        try:
+            candidates.append(context.evaluate("""() => {
+                const body = document.body;
+                if (!body) return '';
+                return [body.innerText || '', ...[...document.querySelectorAll('*')].flatMap(el =>
+                    [el.getAttribute('data-url'), el.getAttribute('data-link'), el.getAttribute('data-clipboard-text')]
+                ).filter(Boolean)].join('\n');
+            }"""))
+        except Exception:
+            pass
     try:
         candidates.append(page.evaluate("navigator.clipboard.readText()"))
     except Exception:
