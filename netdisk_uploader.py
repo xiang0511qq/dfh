@@ -462,6 +462,9 @@ class BrowserWorker:
                 f"--user-data-dir={profile}",
                 "--no-first-run",
                 "--no-default-browser-check",
+                "--new-window",
+                "--start-maximized",
+                "--remote-allow-origins=*",
                 provider.url,
             ]
             try:
@@ -477,6 +480,7 @@ class BrowserWorker:
                 context = browser.contexts[0] if browser.contexts else browser.new_context()
                 page = context.pages[0] if context.pages else context.new_page()
                 page.goto(provider.url, wait_until="domcontentloaded", timeout=30000)
+                page.bring_to_front()
                 self.remote_browsers[provider.key] = browser
                 self.contexts[provider.key] = context
                 self.pages[provider.key] = page
@@ -619,8 +623,10 @@ class App(tk.Tk):
             status_var = tk.StringVar(value=saved_login_label(provider.key))
             self.login_status_vars[provider.key] = status_var
             ttk.Label(item, textvariable=status_var, foreground="#16803c").pack(side="left", padx=(4, 0))
-        ttk.Button(providers_box, text="打开并登录", command=self.open_login).pack(side="right")
-        ttk.Button(providers_box, text="检测登录状态", command=self.refresh_login).pack(side="right", padx=(0, 8))
+        self.login_btn = ttk.Button(providers_box, text="打开并登录", command=self.open_login)
+        self.login_btn.pack(side="right")
+        self.check_login_btn = ttk.Button(providers_box, text="检测登录状态", command=self.refresh_login)
+        self.check_login_btn.pack(side="right", padx=(0, 8))
 
         action_box = ttk.Frame(root)
         action_box.pack(fill="x", pady=12)
@@ -785,6 +791,8 @@ class App(tk.Tk):
     def _set_busy(self, busy: bool, status: Optional[str] = None):
         self.upload_btn.configure(state="disabled" if busy else "normal")
         self.share_btn.configure(state="disabled" if busy else "normal")
+        self.login_btn.configure(state="disabled" if busy else "normal")
+        self.check_login_btn.configure(state="disabled" if busy else "normal")
         if status:
             self.status_var.set(status)
 
