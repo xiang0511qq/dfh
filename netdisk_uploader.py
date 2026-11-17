@@ -469,6 +469,51 @@ def click_upload_and_choose(page, provider: Provider, target: Path) -> bool:
                 return True
         except Exception:
             continue
+    # Last fallback: scan every visible element for 上传/+上传/添加 and click it.
+    for context in _page_contexts(page):
+        picker_stop = _arm_native_picker(target)
+        try:
+            clicked = context.evaluate("""(isFolder) => {
+                const wanted = ['上传', '添加文件', '添加'];
+                const visible = el => {
+                    const r = el.getBoundingClientRect();
+                    const s = getComputedStyle(el);
+                    return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+                };
+                const nodes = [...document.querySelectorAll('button,[role="button"],a,[class*="upload"],[class*="Upload"],[data-testid*="upload"],div,span')];
+                const node = nodes.find(el => {
+                    if (!visible(el)) return false;
+                    const text = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').replace(/\\s+/g, '');
+                    return wanted.some(word => text.includes(word)) && text.length < 30;
+                });
+                if (!node) return false;
+                node.click();
+                return true;
+            }""", target.is_dir())
+            if clicked:
+                try:
+                    page.wait_for_timeout(800)
+                except Exception:
+                    pass
+                if set_file_input(page, target):
+                    picker_stop.set()
+                    return True
+                # A menu may have appeared after the generic click.
+                menu_words = ("上传文件夹", "选择文件夹", "上传文件", "选择文件") if target.is_dir() else ("上传文件", "选择文件")
+                for word in menu_words:
+                    try:
+                        menu = context.get_by_text(word, exact=True)
+                        if menu.count() and menu.first.is_visible():
+                            menu.first.click(timeout=2000)
+                            if set_file_input(page, target):
+                                picker_stop.set()
+                                return True
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        finally:
+            picker_stop.set()
     return set_file_input(page, target)
 
 
@@ -809,6 +854,17 @@ class BrowserWorker:
         results: dict[str, str] = {}
         for provider in providers:
             page = self.pages.get(provider.key)
+            # Prefer the currently visible provider tab if the browser opened another tab.
+            try:
+                context = self.contexts.get(provider.key)
+                if context:
+                    for candidate in context.pages:
+                        if not candidate.is_closed() and any(domain in candidate.url.lower() for domain in provider.share_domains):
+                            page = candidate
+                            self.pages[provider.key] = page
+                            break
+            except Exception:
+                pass
             if page is None or page.is_closed():
                 try:
                     page = self._do_open_background_provider(provider)
