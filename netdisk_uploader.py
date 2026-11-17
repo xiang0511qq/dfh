@@ -595,6 +595,8 @@ class App(tk.Tk):
         self.status_var = tk.StringVar(value="请选择文件或文件夹")
         self.check_vars: dict[str, tk.BooleanVar] = {}
         self.login_status_vars: dict[str, tk.StringVar] = {}
+        self.login_window: Optional[tk.Toplevel] = None
+        self.login_window_status_vars: dict[str, tk.StringVar] = {}
         self._build_ui()
         self.after(150, self._drain_events)
         self.protocol("WM_DELETE_WINDOW", self._close)
@@ -683,12 +685,35 @@ class App(tk.Tk):
             return None, []
         return target, providers
 
+    def _show_login_window(self, providers: list[Provider]):
+        if self.login_window is not None and self.login_window.winfo_exists():
+            self.login_window.lift()
+            return
+        self.login_window = tk.Toplevel(self)
+        self.login_window.title("网盘登录窗口")
+        self.login_window.geometry("560x310")
+        self.login_window.resizable(False, False)
+        ttk.Label(self.login_window, text="按顺序登录四个网盘", font=("Microsoft YaHei UI", 15, "bold")).pack(anchor="w", padx=18, pady=(16, 4))
+        ttk.Label(self.login_window, text="登录页面由软件调用的浏览器窗口显示，完成一个后自动进入下一个。", foreground="#666").pack(anchor="w", padx=18, pady=(0, 12))
+        box = ttk.Frame(self.login_window)
+        box.pack(fill="x", padx=18)
+        self.login_window_status_vars.clear()
+        for provider in providers:
+            row = ttk.Frame(box)
+            row.pack(fill="x", pady=4)
+            ttk.Label(row, text=provider.name, width=12).pack(side="left")
+            status_var = tk.StringVar(value="等待登录")
+            self.login_window_status_vars[provider.key] = status_var
+            ttk.Label(row, textvariable=status_var, foreground="#16803c").pack(side="left")
+        ttk.Button(self.login_window, text="关闭窗口", command=self.login_window.destroy).pack(side="right", padx=18, pady=18)
+
     def open_login(self):
         providers = self.selected_providers()
         if not providers:
             messagebox.showwarning("缺少网盘", "请至少勾选一个网盘。")
             return
-        self._set_busy(True, "正在打开网盘窗口")
+        self._show_login_window(providers)
+        self._set_busy(True, "正在按顺序打开登录窗口")
         threading.Thread(target=self._login_worker, args=(providers,), daemon=True).start()
 
     def _login_worker(self, providers: list[Provider]):
@@ -727,9 +752,14 @@ class App(tk.Tk):
     def _apply_login_status(self, results: dict[str, bool]):
         for provider in PROVIDERS:
             if results.get(provider.key):
-                self.login_status_vars[provider.key].set(saved_login_label(provider.key))
+                label = saved_login_label(provider.key)
+                self.login_status_vars[provider.key].set(label)
+                if provider.key in self.login_window_status_vars:
+                    self.login_window_status_vars[provider.key].set(label)
             elif provider.key in results:
                 self.login_status_vars[provider.key].set("未登录")
+                if provider.key in self.login_window_status_vars:
+                    self.login_window_status_vars[provider.key].set("未登录")
 
     def start_upload(self):
         target, providers = self._validate()
