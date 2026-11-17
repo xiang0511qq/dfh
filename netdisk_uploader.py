@@ -89,8 +89,20 @@ def find_installed_browser() -> Optional[str]:
             Path(root) / "Google/Chrome/Application/chrome.exe",
             Path(root) / "Microsoft/Edge/Application/msedge.exe",
             Path(root) / "Chromium/Application/chrome.exe",
+            Path(root) / "360/360Chrome/Chrome/Application/360chrome.exe",
+            Path(root) / "360Chrome/Chrome/Application/360chrome.exe",
+            Path(root) / "360/360Chrome/360chrome.exe",
+            Path(root) / "Tencent/QQBrowser/QQBrowser.exe",
+            Path(root) / "QQBrowser/QQBrowser.exe",
+            Path(root) / "SogouExplorer/SogouExplorer.exe",
+            Path(root) / "2345Explorer/2345Explorer.exe",
+            Path(root) / "Maxthon/Application/Maxthon.exe",
         ])
-    for command in ("chrome.exe", "msedge.exe", "chromium.exe", "chrome"):
+    for command in (
+        "chrome.exe", "msedge.exe", "chromium.exe", "360chrome.exe",
+        "qqbrowser.exe", "sogouexplorer.exe", "2345explorer.exe",
+        "maxthon.exe", "chrome",
+    ):
         found = shutil.which(command)
         if found:
             candidates.append(Path(found))
@@ -312,7 +324,7 @@ class BrowserWorker:
             self.log(f"使用已安装浏览器：{Path(browser_executable).name}")
             launch_options["executable_path"] = browser_executable
         else:
-            self.log("未找到 Chrome 或 Edge，请先安装浏览器")
+            self.log("未找到可用的 Chromium 浏览器，请先安装 Chrome、Edge、360、QQ、搜狗、2345或遨游浏览器")
         context = self.playwright.chromium.launch_persistent_context(str(profile), **launch_options)
         page = context.pages[0] if context.pages else context.new_page()
         page.goto(provider.url, wait_until="domcontentloaded", timeout=30000)
