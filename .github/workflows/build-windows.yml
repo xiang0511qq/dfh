@@ -1,4 +1,4 @@
-name: Build Windows EXE
+name: Build NetdiskUploader EXE
 on:
   workflow_dispatch:
   push:
@@ -18,18 +18,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -m playwright install chromium
-      - name: Build QR EXE
-        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name "二维码生成工具" qr_generator.py
-      - name: Build compression EXE
-        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name "通用文件压缩工具" "通用压缩工具.py"
-      - name: Build netdisk uploader EXE
+      - name: Build NetdiskUploader EXE
         run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name "NetdiskUploader" netdisk_uploader.py
-      - name: Upload EXEs
+      - name: Upload NetdiskUploader EXE
         uses: actions/upload-artifact@v4
         with:
-          name: Windows-EXE工具包
-          path: |
-            dist/二维码生成工具.exe
-            dist/通用文件压缩工具.exe
-            dist/NetdiskUploader.exe
+          name: NetdiskUploader-EXE
+          path: dist/NetdiskUploader.exe
