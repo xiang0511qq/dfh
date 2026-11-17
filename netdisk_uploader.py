@@ -583,6 +583,39 @@ class BrowserWorker:
         self.contexts[provider.key] = context
         self.pages[provider.key] = page
 
+    def _do_open_background_provider(self, provider: Provider):
+        profile = PROFILE_DIR / provider.key
+        profile.mkdir(parents=True, exist_ok=True)
+        if not self.browser_checked:
+            if BUNDLED_BROWSER_DIR.exists():
+                self.browser_mode = "bundled"
+                self.browser_executable = None
+            else:
+                self.browser_executable = find_installed_browser()
+            self.browser_checked = True
+        launch_options = {
+            "headless": True,
+            "accept_downloads": True,
+            "permissions": ["clipboard-read", "clipboard-write"],
+            "args": ["--disable-blink-features=AutomationControlled"],
+        }
+        if self.browser_executable:
+            launch_options["executable_path"] = self.browser_executable
+        context = self.playwright.chromium.launch_persistent_context(str(profile), **launch_options)
+        page = context.pages[0] if context.pages else context.new_page()
+        page.goto(provider.url, wait_until="domcontentloaded", timeout=30000)
+        self.contexts[provider.key] = context
+        self.pages[provider.key] = page
+        return page
+
+    def _do_open_background_selected(self, providers: list[Provider]) -> None:
+        for provider in providers:
+            try:
+                self._do_open_background_provider(provider)
+                self.log(f"{provider.name} 已使用保存的后台登录会话")
+            except Exception as exc:
+                self.log(f"{provider.name} 后台会话打开失败：{exc}")
+
     def _do_open_selected(self, providers: list[Provider]) -> None:
         for provider in providers:
             try:
@@ -610,7 +643,7 @@ class BrowserWorker:
             page = self.pages.get(provider.key)
             if page is None or page.is_closed():
                 try:
-                    page = self._do_open_provider(provider)
+                    page = self._do_open_background_provider(provider)
                 except Exception as exc:
                     self.log(f"{provider.name} 打开失败：{exc}")
                     continue
@@ -636,6 +669,9 @@ class BrowserWorker:
 
     def open_selected(self, providers: list[Provider]) -> None:
         self._call("open_selected", providers)
+
+    def open_background_selected(self, providers: list[Provider]) -> None:
+        self._call("open_background_selected", providers)
 
     def _do_check_login(self, providers: list[Provider]) -> dict[str, bool]:
         result = {}
@@ -812,14 +848,14 @@ class App(tk.Tk):
         if not providers:
             messagebox.showwarning("缺少网盘", "请至少勾选一个网盘。")
             return
-        if self.worker is None:
-            messagebox.showinfo("先打开登录窗口", "请先点击“打开并登录”，再检测登录状态。")
-            return
-        self._set_busy(True, "正在检测登录状态")
+        self._set_busy(True, "正在检测已保存登录状态")
         threading.Thread(target=self._refresh_login_worker, args=(providers,), daemon=True).start()
 
     def _refresh_login_worker(self, providers: list[Provider]):
         try:
+            if self.worker is None:
+                self.worker = BrowserWorker(self._log)
+                self.worker.open_background_selected(providers)
             results = self.worker.check_login(providers)
             self.events.put(("login_status", results))
             self.events.put(("status", "登录状态已更新"))
@@ -860,6 +896,7 @@ class App(tk.Tk):
         try:
             if self.worker is None:
                 self.worker = BrowserWorker(self._log)
+                self.worker.open_background_selected(providers)
             results = self.worker.upload_selected(providers, target) if create_links else self.worker.upload_only(providers, target)
             self.events.put(("results", results))
             status = "上传并生成链接完成" if create_links else "文件或文件夹上传完成"
