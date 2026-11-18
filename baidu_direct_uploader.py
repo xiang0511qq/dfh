@@ -109,8 +109,8 @@ class App(tk.Tk):
             else:
                 fid=c.upload_file(p,(target.rstrip('/')+'/'+os.path.basename(p)).replace('//','/'))
                 link,pwd=c.share(fid)
-                self.log('永久分享链接: '+str(link))
-                self.log('提取码: '+pwd)
+                sep='&' if '?' in str(link) else '?'
+                self.log('永久分享链接: '+str(link)+sep+'pwd='+pwd)
             self.log('全部上传完成')
         except Exception as e:self.log('失败: '+str(e)); self.after(0,lambda:messagebox.showerror('上传失败',str(e)))
 if __name__=='__main__': App().mainloop()
