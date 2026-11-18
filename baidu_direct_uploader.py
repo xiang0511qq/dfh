@@ -54,8 +54,20 @@ class BaiduClient:
                     except Exception: raise RuntimeError('分片上传返回异常')
                     if d.get('errno',0)!=0: raise RuntimeError(f'分片上传失败 {d}')
                     self.progress((idx+1)*100/max(1,len(need)))
-        self.post('/api/create',{'path':remote,'size':str(size),'isdir':'0','uploadid':uploadid,'block_list':json.dumps(blocks,separators=(',',':')),'rtype':'1'})
+        created=self.post('/api/create',{'path':remote,'size':str(size),'isdir':'0','uploadid':uploadid,'block_list':json.dumps(blocks,separators=(',',':')),'rtype':'1'})
         self.log('上传完成: '+remote)
+        return created.get('fs_id') or created.get('fsid')
+    def share(self, fs_id):
+        if not fs_id: raise RuntimeError('上传接口没有返回文件ID，无法创建分享')
+        if not self.bdstoken: self.get_token()
+        params={'channel':'chunlei','clienttype':'0','web':'1','app_id':'250528','bdstoken':self.bdstoken}
+        data={'fid_list':json.dumps([int(fs_id)]),'schannel':'0','channel_list':'[]','period':'0','eflag_disable':'true'}
+        r=self.s.post(API+'/share/set',params=params,data=data,timeout=60)
+        try:d=r.json()
+        except Exception: raise RuntimeError(f'分享接口返回异常 HTTP {r.status_code}')
+        if d.get('errno',0)!=0: raise RuntimeError(f'创建分享失败 {d}')
+        return d.get('link') or d.get('shorturl') or d.get('share_url') or (d.get('data') or {}).get('link')
+
     def upload_folder(self,folder,target):
         root=Path(folder); target=target.rstrip('/') or ''
         files=[p for p in root.rglob('*') if p.is_file()]; dirs=[p for p in root.rglob('*') if p.is_dir()]
@@ -89,8 +101,13 @@ class App(tk.Tk):
     def run(self,ck,p,target,mode):
         try:
             c=BaiduClient(ck,self.log,self.progress); c.get_token()
-            if mode=='folder': c.upload_folder(p,target)
-            else: c.upload_file(p,(target.rstrip('/')+'/'+os.path.basename(p)).replace('//','/'))
+            if mode=='folder':
+                c.upload_folder(p,target)
+                self.log('文件夹上传完成。文件夹分享请在百度网盘网页中右键分享。')
+            else:
+                fid=c.upload_file(p,(target.rstrip('/')+'/'+os.path.basename(p)).replace('//','/'))
+                link=c.share(fid)
+                self.log('永久分享链接: '+str(link))
             self.log('全部上传完成')
         except Exception as e:self.log('失败: '+str(e)); self.after(0,lambda:messagebox.showerror('上传失败',str(e)))
 if __name__=='__main__': App().mainloop()
