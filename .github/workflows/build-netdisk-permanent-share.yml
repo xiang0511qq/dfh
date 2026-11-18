@@ -1,0 +1,22 @@
+name: build-netdisk-permanent-share
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'netdisk_uploader.py'
+      - '.github/workflows/build-netdisk-permanent-share.yml'
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip pyinstaller
+      - run: python -m pip install -r requirements.txt
+      - run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name NetdiskUploader netdisk_uploader.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NetdiskUploader-永久分享版
+          path: dist/NetdiskUploader.exe
