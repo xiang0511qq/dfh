@@ -1,4 +1,5 @@
 import os, threading, tkinter as tk
+from urllib.parse import quote
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from playwright.sync_api import sync_playwright
@@ -10,7 +11,7 @@ class App(tk.Tk):
         ttk.Label(self,text='百度网盘 Cookie（只在本机使用）').pack(anchor='w',padx=14,pady=(12,3))
         self.cookie=tk.Text(self,height=4,width=98); self.cookie.pack(padx=14)
         row=ttk.Frame(self); row.pack(fill='x',padx=14,pady=8)
-        ttk.Label(row,text='目标文件夹路径').pack(side='left'); ttk.Entry(row,textvariable=self.target,width=42).pack(side='left',padx=8)
+        ttk.Label(row,text='目标文件夹 ID').pack(side='left'); ttk.Entry(row,textvariable=self.target,width=42).pack(side='left',padx=8)
         ttk.Button(row,text='选择文件',command=self.choose_file).pack(side='left',padx=4); ttk.Button(row,text='选择文件夹',command=self.choose_folder).pack(side='left',padx=4)
         ttk.Entry(self,textvariable=self.path,width=98).pack(padx=14,pady=6)
         self.bar=ttk.Progressbar(self,length=730,mode='determinate'); self.bar.pack(padx=14,pady=8)
@@ -39,7 +40,10 @@ class App(tk.Tk):
             self.pw=sync_playwright().start(); profile=os.path.join(os.path.dirname(os.path.abspath(__file__)),'百度网页会话')
             self.ctx=self.pw.chromium.launch_persistent_context(profile,headless=False, channel='msedge')
             self.ctx.add_cookies(self.parse_cookie(ck))
-            page=self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page(); page.goto('https://pan.baidu.com/disk/main',wait_until='domcontentloaded',timeout=60000)
+            page=self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page(); target = self.target.get().strip() or '/'
+            page.goto('https://pan.baidu.com/disk/main',wait_until='domcontentloaded',timeout=60000)
+            if target != '/':
+                page.goto('https://pan.baidu.com/disk/main#/all?path=' + quote(target), wait_until='domcontentloaded', timeout=60000)
             self.log('已打开百度网盘，请确认账号已登录，并打开目标文件夹。')
             files=[p] if mode=='file' else [str(x) for x in Path(p).rglob('*') if x.is_file()]
             self.log(f'共准备 {len(files)} 个文件。请在网页中点击上传按钮后继续。')
