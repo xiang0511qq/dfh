@@ -18,10 +18,10 @@ class App(tk.Tk):
         self.logbox=tk.Text(self,height=20,width=98,state='disabled'); self.logbox.pack(padx=14,pady=8)
     def log(self,s): self.after(0,lambda:(self.logbox.configure(state='normal'),self.logbox.insert('end',s+'\n'),self.logbox.see('end'),self.logbox.configure(state='disabled')))
     def choose_file(self):
-        p=filedialog.askopenfilename();
+        p=filedialog.askopenfilename()
         if p:self.path.set(p);self.mode='file'
     def choose_folder(self):
-        p=filedialog.askdirectory();
+        p=filedialog.askdirectory()
         if p:self.path.set(p);self.mode='folder'
     def parse_cookie(self,s):
         out=[]
@@ -37,7 +37,7 @@ class App(tk.Tk):
     def run(self,ck,p,mode):
         try:
             self.pw=sync_playwright().start(); profile=os.path.join(os.path.dirname(os.path.abspath(__file__)),'百度网页会话')
-            self.ctx=self.pw.chromium.launch_persistent_context(profile,headless=False)
+            self.ctx=self.pw.chromium.launch_persistent_context(profile,headless=False, channel='msedge')
             self.ctx.add_cookies(self.parse_cookie(ck))
             page=self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page(); page.goto('https://pan.baidu.com/disk/main',wait_until='domcontentloaded',timeout=60000)
             self.log('已打开百度网盘，请确认账号已登录，并打开目标文件夹。')
@@ -47,7 +47,7 @@ class App(tk.Tk):
             inputs=page.locator('input[type="file"]')
             if inputs.count()==0:
                 self.log('网页当前没有上传控件，请在网页中点击“上传”后重试。'); return
-            inputs.first.set_input_files(files); self.log('已提交上传，请在网页右上角查看进度。')
+            inputs.first.set_input_files(files); self.log('已提交上传，请在百度网页右上角查看进度。')
         except Exception as e:self.log('失败：'+str(e))
     def destroy(self):
         try:
