@@ -1,0 +1,21 @@
+name: Build Baidu uploader EXE
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install playwright pyinstaller
+      - name: Install browser
+        run: python -m playwright install chromium
+      - name: Build EXE
+        run: pyinstaller --noconfirm --clean --onefile --windowed --name 百度网盘文件上传 baidu_uploader.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 百度网盘文件上传-Windows
+          path: dist/百度网盘文件上传.exe
