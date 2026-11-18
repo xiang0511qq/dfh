@@ -1,0 +1,24 @@
+name: build-xunlei-uploader
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'xunlei_uploader.py'
+      - '.github/workflows/build-xunlei-uploader.yml'
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install boto3 pyinstaller
+      - name: Build EXE
+        run: pyinstaller --noconsole --onefile --name 迅雷网盘自动上传工具 xunlei_uploader.py
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: 迅雷网盘自动上传工具
+          path: dist/迅雷网盘自动上传工具.exe
