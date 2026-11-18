@@ -35,10 +35,21 @@ class App(tk.Tk):
                 cs=self.ctx.cookies(['https://pan.baidu.com/','https://passport.baidu.com/'])
                 names={c['name']:c['value'] for c in cs}
                 if names.get('BDUSS') or names.get('BDUSS_BFESS'):
-                    self.cookie='; '.join(f'{k}={v}' for k,v in names.items()); self.after(0,lambda:self.status.configure(text='已登录')); self.log('扫码登录成功，已获取当前会话。'); return
+                    self.cookie='; '.join(f'{k}={v}' for k,v in names.items())
+                    try:
+                        self.ctx.close()
+                        self.pw.stop()
+                    except Exception:
+                        pass
+                    self.ctx=None; self.pw=None
+                    self.after(0,lambda:self.status.configure(text='已登录，浏览器已关闭'))
+                    self.log('扫码登录成功，浏览器已自动关闭。')
+                    return
                 page.wait_for_timeout(1000)
             self.log('扫码登录超时，请重试。')
-        except Exception as e:self.log('登录失败: '+str(e))
+        except Exception as e:
+            self.log('登录失败: '+str(e))
+            self.after(0,lambda:self.status.configure(text='登录失败，请重新扫码'))
     def start(self):
         if not self.cookie:return messagebox.showwarning('提示','请先点击“扫码登录”并完成登录')
         p=self.path.get().strip(); target=self.target.get().strip() or '/'
