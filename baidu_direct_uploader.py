@@ -12,6 +12,7 @@ class BaiduClient:
     def __init__(self,cookie,log,progress):
         self.s=requests.Session(); self.s.headers.update({'User-Agent':UA,'Referer':'https://pan.baidu.com/','Cookie':cookie,'Origin':'https://pan.baidu.com'})
         self.log,self.progress=log,progress; self.bdstoken=''
+        self.cookie=dict((x.strip().split('=',1) for x in cookie.replace('\n',' ').split(';') if '=' in x))
     def get_token(self):
         r=self.s.get(API+'/api/gettemplatevariable',params={'prod':'pan','fields':'["bdstoken"]'},timeout=30)
         try:d=r.json()
@@ -21,8 +22,8 @@ class BaiduClient:
         return self.bdstoken
     def post(self,path,data,files=None):
         if not self.bdstoken:self.get_token()
-        data=dict(data); data.setdefault('bdstoken',self.bdstoken); data.setdefault('channel','chunlei'); data.setdefault('web','1'); data.setdefault('app_id','250528')
-        r=self.s.post(API+path,data=data,files=files,timeout=120)
+        data=dict(data); params={'bdstoken':self.bdstoken,'channel':'chunlei','web':'1','app_id':'250528','clienttype':'0','logid':'MTU0ODQ2NzUyODMzMjAuMjMxNjA1MzgwMTEzNzc0OTY='}
+        r=self.s.post(API+path,params=params,data=data,files=files,timeout=120)
         try:d=r.json()
         except Exception: raise RuntimeError(f'接口返回异常 HTTP {r.status_code}')
         if d.get('errno',0)!=0: raise RuntimeError(f'百度接口错误 {d.get("errno")}: {d.get("errmsg",d)}')
@@ -41,13 +42,13 @@ class BaiduClient:
             if 'errno 31066' not in str(e): raise
     def upload_file(self,local,remote):
         blocks,size=self.md5s(local); self.log(f'准备上传: {os.path.basename(local)} ({size/1048576:.2f} MB)')
-        pre=self.post('/api/precreate',{'path':remote,'size':str(size),'isdir':'0','autoinit':'1','block_list':json.dumps(blocks,separators=(',',':')),'rtype':'1','local_mtime':str(int(os.path.getmtime(local))),'local_ctime':str(int(os.path.getctime(local)))})
+        pre=self.post('/api/precreate',{'path':remote,'target_path':str(Path(remote).parent).replace('\\','/'),'size':str(size),'isdir':'0','autoinit':'1','block_list':json.dumps(blocks,separators=(',',':')),'rtype':'1','startLogTime':str(int(time.time()*1000)),'local_mtime':str(int(os.path.getmtime(local))),'local_ctime':str(int(os.path.getctime(local)))})
         uploadid=pre.get('uploadid',''); need=pre.get('block_list',list(range(len(blocks))))
         if need and uploadid:
             with open(local,'rb') as f:
                 for idx in need:
                     f.seek(idx*CHUNK); part=f.read(CHUNK)
-                    params={'method':'upload','type':'tmpfile','path':remote,'uploadid':uploadid,'partseq':str(idx),'bdstoken':self.bdstoken,'app_id':'250528'}
+                    params={'method':'upload','type':'tmpfile','path':remote,'uploadid':uploadid,'partseq':str(idx),'bdstoken':self.bdstoken,'app_id':'250528','BDUSS':self.cookie.get('BDUSS') or self.cookie.get('BDUSS_BFESS',''),'clienttype':'0','channel':'chunlei','web':'1'}
                     r=self.s.post(API+'/rest/2.0/pcs/superfile2',params=params,files={'file':('blob',part)},timeout=180)
                     try:d=r.json()
                     except Exception: raise RuntimeError('分片上传返回异常')
