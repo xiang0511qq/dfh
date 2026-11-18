@@ -10,7 +10,7 @@ CHUNK=4*1024*1024
 
 class BaiduClient:
     def __init__(self,cookie,log,progress):
-        self.s=requests.Session(); self.s.headers.update({'User-Agent':UA,'Referer':'https://pan.baidu.com/','Cookie':cookie,'Origin':'https://pan.baidu.com'})
+        self.s=requests.Session(); self.s.headers.update({'User-Agent':UA,'Referer':'https://pan.baidu.com/','Cookie':cookie,'Origin':'https://pan.baidu.com','Accept-Encoding':'identity'})
         self.log,self.progress=log,progress; self.bdstoken=''
         self.cookie=dict((x.strip().split('=',1) for x in cookie.replace('\n',' ').split(';') if '=' in x))
     def get_token(self):
