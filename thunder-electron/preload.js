@@ -1,0 +1,2 @@
+const {contextBridge,ipcRenderer}=require('electron');
+contextBridge.exposeInMainWorld('api',{chooseFile:()=>ipcRenderer.invoke('choose-file'),upload:p=>ipcRenderer.invoke('upload',p),onLog:f=>ipcRenderer.on('log',(_,m)=>f(m)),onProgress:f=>ipcRenderer.on('progress',(_,m)=>f(m))});
