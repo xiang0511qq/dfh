@@ -654,6 +654,10 @@ def extract_share_link(page, provider: Provider) -> Optional[str]:
         for candidate in url_pattern.findall(text):
             candidate = clean_url(candidate if candidate.startswith("http") else "https://" + candidate)
             if is_official_share_url(candidate, provider):
+                if provider.key == "baidu":
+                    code_match = re.search(r"(?:提取码|密码)\s*[:：]?\s*([A-Za-z0-9]{4})", "\n".join(candidates))
+                    if code_match and "pwd=" not in candidate.lower():
+                        candidate += "?pwd=" + code_match.group(1)
                 return candidate
     return None
 
@@ -670,6 +674,9 @@ def create_share_link(page, provider: Provider, target: Path, log: Callable[[str
     # UC and Baidu expose a separate public-share choice after opening Share.
     if provider.public_share_words:
         click_text(page, provider.public_share_words, timeout=1800)
+    # Baidu defaults to a short expiry in some accounts. Explicitly choose permanent validity.
+    if provider.key == "baidu":
+        click_text(page, ("永久有效", "永久", "长期有效"), timeout=1800)
     click_text(page, ("创建分享链接", "创建分享", "确定分享", "创建链接", "生成链接", "确定", "确认"), timeout=2000)
     time.sleep(1.2)
     try:
