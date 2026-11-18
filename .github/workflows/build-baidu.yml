@@ -1,5 +1,9 @@
 name: Build Baidu uploader EXE
 on:
+  push:
+    paths:
+      - 'baidu_uploader.py'
+      - '.github/workflows/build-baidu.yml'
   workflow_dispatch:
 jobs:
   build:
