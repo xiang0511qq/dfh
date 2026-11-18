@@ -1,0 +1,22 @@
+name: Build Baidu QR uploader EXE
+on:
+  push:
+    paths:
+      - 'baidu_qr_uploader.py'
+      - 'baidu_direct_uploader.py'
+      - '.github/workflows/build-baidu-qr.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install requests playwright pyinstaller
+      - run: pyinstaller --noconfirm --clean --onefile --windowed --name 百度网盘扫码上传 baidu_qr_uploader.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 百度网盘扫码上传-Windows
+          path: dist/百度网盘扫码上传.exe
