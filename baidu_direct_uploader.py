@@ -49,7 +49,7 @@ class BaiduClient:
                 for idx in need:
                     f.seek(idx*CHUNK); part=f.read(CHUNK)
                     params={'method':'upload','type':'tmpfile','path':remote,'uploadid':uploadid,'partseq':str(idx),'bdstoken':self.bdstoken,'app_id':'250528','BDUSS':self.cookie.get('BDUSS') or self.cookie.get('BDUSS_BFESS',''),'clienttype':'0','channel':'chunlei','web':'1'}
-                    r=self.s.post(API+'/rest/2.0/pcs/superfile2',params=params,files={'file':('blob',part)},timeout=180)
+                    r=self.s.post('https://c3.pcs.baidu.com/rest/2.0/pcs/superfile2',params=params,files={'file':('blob',part)},timeout=180)
                     try:d=r.json()
                     except Exception: raise RuntimeError('分片上传返回异常')
                     if d.get('errno',0)!=0: raise RuntimeError(f'分片上传失败 {d}')
