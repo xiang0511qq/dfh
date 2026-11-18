@@ -1,4 +1,4 @@
-import hashlib, json, os, threading, time, tkinter as tk
+import hashlib, json, os, random, threading, time, tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from urllib.parse import quote
@@ -61,12 +61,14 @@ class BaiduClient:
         if not fs_id: raise RuntimeError('上传接口没有返回文件ID，无法创建分享')
         if not self.bdstoken: self.get_token()
         params={'channel':'chunlei','clienttype':'0','web':'1','app_id':'250528','bdstoken':self.bdstoken}
-        data={'fid_list':json.dumps([int(fs_id)]),'schannel':'0','channel_list':'[]','period':'0','eflag_disable':'true'}
+        pwd=''.join(random.choice('abcdefghijklmnopqrstuvwxyz0123456789') for _ in range(4))
+        data={'fid_list':json.dumps([int(fs_id)]),'schannel':'4','channel_list':'[]','period':'0','pwd':pwd,'eflag_disable':'true'}
         r=self.s.post(API+'/share/set',params=params,data=data,timeout=60)
         try:d=r.json()
         except Exception: raise RuntimeError(f'分享接口返回异常 HTTP {r.status_code}')
         if d.get('errno',0)!=0: raise RuntimeError(f'创建分享失败 {d}')
-        return d.get('link') or d.get('shorturl') or d.get('share_url') or (d.get('data') or {}).get('link')
+        link=d.get('link') or d.get('shorturl') or d.get('share_url') or (d.get('data') or {}).get('link')
+        return link, pwd
 
     def upload_folder(self,folder,target):
         root=Path(folder); target=target.rstrip('/') or ''
@@ -106,8 +108,9 @@ class App(tk.Tk):
                 self.log('文件夹上传完成。文件夹分享请在百度网盘网页中右键分享。')
             else:
                 fid=c.upload_file(p,(target.rstrip('/')+'/'+os.path.basename(p)).replace('//','/'))
-                link=c.share(fid)
+                link,pwd=c.share(fid)
                 self.log('永久分享链接: '+str(link))
+                self.log('提取码: '+pwd)
             self.log('全部上传完成')
         except Exception as e:self.log('失败: '+str(e)); self.after(0,lambda:messagebox.showerror('上传失败',str(e)))
 if __name__=='__main__': App().mainloop()
