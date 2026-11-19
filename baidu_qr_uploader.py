@@ -7,7 +7,7 @@ from baidu_direct_uploader import BaiduClient
 class App(tk.Tk):
     def __init__(self):
         super().__init__(); self.title('百度网盘扫码上传'); self.geometry('760x610'); self.resizable(False,False)
-        self.path=tk.StringVar(); self.target=tk.StringVar(value='/'); self.mode='file'; self.ctx=None; self.pw=None; self.cookie=''; self.bdstoken=''
+        self.path=tk.StringVar(); self.target=tk.StringVar(value='/'); self.mode='file'; self.ctx=None; self.pw=None; self.cookie=''; self.bdstoken=''; self._token_box={}
         ttk.Label(self,text='百度网盘扫码登录（登录状态只在本机使用）').pack(anchor='w',padx=14,pady=(12,3))
         row=ttk.Frame(self); row.pack(fill='x',padx=14,pady=8)
         ttk.Button(row,text='扫码登录',command=self.login).pack(side='left'); self.status=ttk.Label(row,text='未登录'); self.status.pack(side='left',padx=12)
@@ -28,7 +28,13 @@ class App(tk.Tk):
         try:
             self.pw=sync_playwright().start(); profile=os.path.join(os.path.dirname(os.path.abspath(__file__)),'百度扫码会话')
             self.ctx=self.pw.chromium.launch_persistent_context(profile,headless=False,channel='msedge')
-            page=self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page(); page.goto('https://pan.baidu.com/disk/main',wait_until='domcontentloaded',timeout=60000)
+            page=self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page()
+            def capture(req):
+                text=req.url + ' ' + (req.post_data or '')
+                m=re.search(r'bdstoken(?:=|%3D|\\\":\\\")([0-9a-f]{16,64})', text, re.I)
+                if m: self._token_box['value']=m.group(1)
+            page.on('request', capture)
+            page.goto('https://pan.baidu.com/disk/main',wait_until='domcontentloaded',timeout=60000)
             self.after(0,lambda:self.status.configure(text='请在打开的网页中扫码登录'))
             self.log('已打开百度网盘，请扫码登录。')
             for _ in range(180):
@@ -41,6 +47,7 @@ class App(tk.Tk):
                         html=page.content()
                         m=re.search(r'bdstoken["\\\']?\\s*[:=]\\s*["\\\']([0-9a-f]{32})', html, re.I)
                         self.bdstoken=m.group(1) if m else ''
+                        if not self.bdstoken: self.bdstoken=self._token_box.get('value','')
                     except Exception:
                         self.bdstoken=''
                     try:
