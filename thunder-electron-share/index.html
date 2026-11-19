@@ -5,10 +5,14 @@
 *{box-sizing:border-box}html,body{margin:0;height:100%;font-family:"Microsoft YaHei",Arial,sans-serif;color:#222;background:#eef1f5}
 body{display:flex;flex-direction:column;min-width:900px;overflow:hidden}
 #top{position:relative;height:300px;flex:none;background:#fff;border-bottom:1px solid #cfd5dc;overflow:hidden}
+#top.logged{height:48px;background:#e8f5e9}
 #web{display:block;width:100%;height:100%;border:0;background:#fff}
+#top.logged #web{position:absolute;left:-10000px;top:-10000px;width:1px;height:1px}
 #webtools{position:absolute;right:12px;top:10px;z-index:3;display:flex;gap:6px;background:rgba(255,255,255,.94);padding:6px;border-radius:6px;box-shadow:0 1px 5px #888}
 #webtools button{margin:0;padding:5px 10px;font-size:13px}
+#top.logged #webtools{display:none}
 #hint{position:absolute;left:12px;top:10px;z-index:3;background:rgba(255,255,255,.94);padding:6px 10px;border-radius:6px;color:#555;font-size:13px}
+#top.logged #hint{top:13px;background:transparent;color:#14804a;font-weight:bold}
 #bar{padding:9px 12px;background:#f5f7fa;border-bottom:1px solid #ccd3db}
 .row{display:flex;align-items:center;gap:7px;margin:5px 0}
 label{width:106px;text-align:right;color:#333;white-space:nowrap}input{height:31px;padding:5px 8px;border:1px solid #b8c1cc;border-radius:4px;background:#fff}
@@ -35,9 +39,10 @@ progress{width:220px;height:18px}.linkbox{display:flex;align-items:center;gap:7p
 const $=id=>document.getElementById(id);let uploadedName='',zoom=1.2;const web=$('web');
 $('choose').onclick=async()=>{let f=await api.chooseFile();if(f){$('file').value=f;uploadedName=f.split(/[\\/]/).pop();$('status').textContent='状态：已选择 '+uploadedName}};
 async function generateShare(){try{$('status').textContent='状态：上传成功，正在生成永久分享链接…';const w=web;for(let attempt=0;attempt<4;attempt++){let r=await w.executeJavaScript(`(()=>{const n=${JSON.stringify(uploadedName)},v=e=>{const b=e.getBoundingClientRect(),s=getComputedStyle(e);return b.width>0&&b.height>0&&s.display!='none'},t=e=>(e.innerText||'').trim(),a=[...document.querySelectorAll('button,[role=button],a,div,span')],x=a.find(e=>v(e)&&t(e).includes(n));if(x){x.click();return 'ok'}return '未找到文件'})()`);if(r==='ok')break;await new Promise(x=>setTimeout(x,1000))}await new Promise(x=>setTimeout(x,700));for(const words of [['分享','创建分享'],['永久有效','永久','长期有效'],['创建分享链接','生成链接','确定','确认']]){await w.executeJavaScript(`(()=>{const a=[...document.querySelectorAll('button,[role=button],a,div,span')],x=a.find(e=>${JSON.stringify(words)}.some(w=>(e.innerText||'').trim()===w));if(x)x.click();return true})()`);await new Promise(x=>setTimeout(x,700))}const result=await w.executeJavaScript(`(()=>{const t=document.body.innerText||'',u=t.match(/https?:\\/\\/[^\\s]+/),p=t.match(/(?:提取码|密码)\\s*[:：]?\\s*([A-Za-z0-9]{4,6})/);return (u?u[0]:'')+(p?'?pwd='+p[1]:'')})()`);$('link').value=result||'上传成功，请点击“生成永久分享链接”完成生成';$('status').textContent=result?'状态：上传成功，永久分享链接已生成':'状态：上传成功，未自动识别链接，请点击绿色按钮';}catch(e){$('status').textContent='状态：上传成功，生成链接失败，请点击绿色按钮重试';$('link').value='生成失败：'+e.message}}
-$('up').onclick=async()=>{try{if(!$('file').value)return alert('请选择本地文件');$('status').textContent='状态：正在上传…';$('link').value='';$('p').value=0;await api.upload({file:$('file').value,parent:$('parent').value});$('share').disabled=false;await generateShare()}catch(e){$('status').textContent='状态：上传失败';alert(e.message)}};
+$('up').onclick=async()=>{try{if(!$('file').value)return alert('请选择本地文件');$('status').textContent='状态：正在上传…';$('link').value='';$('p').value=0;await api.upload({file:$('file').value,parent:$('parent').value});$('share').disabled=false;await generateShare()}catch(e){const m=e.message||'';if(m.includes('captcha_invalid')){$('status').textContent='状态：验证码已失效，请刷新网页并重新登录后再上传';$('link').value='验证码无效，请点击右上角“刷新网页”，重新扫码登录'}else{$('status').textContent='状态：上传失败';$('link').value=m}alert($('link').value)}};
 $('share').onclick=generateShare;
-$('zoomin').onclick=()=>{zoom=Math.min(1.6,zoom+.1);web.setZoomFactor(zoom)};$('zoomout').onclick=()=>{zoom=Math.max(.8,zoom-.1);web.setZoomFactor(zoom)};$('reload').onclick=()=>web.reload();
-web.addEventListener('dom-ready',()=>{web.setZoomFactor(zoom);$('hint').style.display='none'});
+$('zoomin').onclick=()=>{zoom=Math.min(1.6,zoom+.1);web.setZoomFactor(zoom)};$('zoomout').onclick=()=>{zoom=Math.max(.8,zoom-.1);web.setZoomFactor(zoom)};$('reload').onclick=()=>{web.reload();$('top').classList.remove('logged');$('hint').textContent='请在上方扫码登录迅雷网盘';$('status').textContent='状态：正在刷新登录页…'}};
+web.addEventListener('dom-ready',()=>{web.setZoomFactor(zoom);$('hint').style.display='block'});
+api.onAuthReady(()=>{$('top').classList.add('logged');$('hint').textContent='已登录迅雷网盘，网页区域已自动隐藏';$('status').textContent='状态：已登录迅雷网盘，可选择文件上传'});
 api.onLog(m=>{$('log').textContent+=m+'\n';$('log').scrollTop=$('log').scrollHeight});api.onProgress(x=>{$('p').value=x.total?x.done*100/x.total:0});
 </script>
