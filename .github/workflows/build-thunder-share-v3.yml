@@ -1,0 +1,26 @@
+name: build-thunder-share-v3
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'thunder-electron-share/**'
+      - '.github/workflows/build-thunder-share-v3.yml'
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: thunder-electron-share
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm pkg delete dependencies.electron dependencies.electron-builder
+      - run: npm pkg set devDependencies.electron=^36.9.5 devDependencies.electron-builder=^26.18.0
+      - run: npm install
+      - run: npx electron-builder --win portable
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 迅雷网盘永久分享自动上传工具-v3
+          path: thunder-electron-share/dist/*.exe
