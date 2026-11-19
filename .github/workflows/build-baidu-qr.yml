@@ -20,3 +20,5 @@ jobs:
         with:
           name: 百度网盘扫码上传-Windows
           path: dist/百度网盘扫码上传.exe
+
+# refresh
