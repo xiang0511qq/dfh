@@ -1,4 +1,4 @@
-import os, re, threading, tkinter as tk
+import ctypes, os, re, threading, tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from playwright.sync_api import sync_playwright
@@ -23,6 +23,19 @@ class App(tk.Tk):
     def choose_folder(self):
         p=filedialog.askdirectory();
         if p:self.path.set(p);self.mode='folder'
+    def hide_browser(self):
+        if os.name!='nt': return
+        user32=ctypes.windll.user32
+        SW_MINIMIZE=6
+        EnumWindowsProc=ctypes.WINFUNCTYPE(ctypes.c_bool,ctypes.c_void_p,ctypes.c_void_p)
+        def cb(hwnd,lparam):
+            buf=ctypes.create_unicode_buffer(512)
+            user32.GetWindowTextW(hwnd,buf,512)
+            title=buf.value
+            if '百度网盘' in title and '扫码上传' not in title:
+                user32.ShowWindow(hwnd,SW_MINIMIZE)
+            return True
+        user32.EnumWindows(EnumWindowsProc(cb),0)
     def login(self): threading.Thread(target=self._login,daemon=True).start()
     def _login(self):
         try:
@@ -50,14 +63,9 @@ class App(tk.Tk):
                         if not self.bdstoken: self.bdstoken=self._token_box.get('value','')
                     except Exception:
                         self.bdstoken=''
-                    try:
-                        self.ctx.close()
-                        self.pw.stop()
-                    except Exception:
-                        pass
-                    self.ctx=None; self.pw=None
-                    self.after(0,lambda:self.status.configure(text='已登录，浏览器已关闭'))
-                    self.log('扫码登录成功，浏览器已自动关闭。')
+                    self.hide_browser()
+                    self.after(0,lambda:self.status.configure(text='已登录，浏览器已隐藏'))
+                    self.log('扫码登录成功，浏览器已隐藏，后台会话继续保留。')
                     return
                 page.wait_for_timeout(1000)
             self.log('扫码登录超时，请重试。')
