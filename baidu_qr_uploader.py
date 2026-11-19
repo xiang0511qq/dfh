@@ -37,6 +37,7 @@ class App(tk.Tk):
                 if names.get('BDUSS') or names.get('BDUSS_BFESS'):
                     self.cookie='; '.join(f'{k}={v}' for k,v in names.items())
                     try:
+                        page.goto('https://pan.baidu.com/disk/home', wait_until='domcontentloaded', timeout=60000)
                         html=page.content()
                         m=re.search(r'bdstoken["\\\']?\\s*[:=]\\s*["\\\']([0-9a-f]{32})', html, re.I)
                         self.bdstoken=m.group(1) if m else ''
