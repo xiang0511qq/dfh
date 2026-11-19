@@ -14,7 +14,7 @@ class BaiduClient:
         self.log,self.progress=log,progress; self.bdstoken=''
         self.cookie=dict((x.strip().split('=',1) for x in cookie.replace('\n',' ').split(';') if '=' in x))
     def get_token(self):
-        r=self.s.get(API+'/api/gettemplatevariable',params={'prod':'pan','fields':'["bdstoken"]'},timeout=30)
+        r=self.s.get(API+'/api/gettemplatevariable',params={'prod':'pan','fields':'["bdstoken"]','clienttype':'0','web':'1','app_id':'250528'},timeout=30)
         try:d=r.json()
         except Exception: raise RuntimeError('Cookie无效或接口返回异常')
         if isinstance(d,list):
