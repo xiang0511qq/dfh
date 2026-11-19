@@ -17,7 +17,11 @@ class BaiduClient:
         r=self.s.get(API+'/api/gettemplatevariable',params={'prod':'pan','fields':'["bdstoken"]'},timeout=30)
         try:d=r.json()
         except Exception: raise RuntimeError('Cookie无效或接口返回异常')
-        self.bdstoken=d.get('result',{}).get('bdstoken') or d.get('bdstoken') or ''
+        if isinstance(d,list):
+            d=next((x for x in d if isinstance(x,dict)), {})
+        result=d.get('result',{}) if isinstance(d,dict) else {}
+        if isinstance(result,list): result=next((x for x in result if isinstance(x,dict)), {})
+        self.bdstoken=(result.get('bdstoken') if isinstance(result,dict) else '') or (d.get('bdstoken') if isinstance(d,dict) else '') or ''
         if not self.bdstoken: raise RuntimeError('未获取到 bdstoken，请重新登录百度网盘并获取完整Cookie')
         return self.bdstoken
     def post(self,path,data,files=None):
@@ -26,6 +30,7 @@ class BaiduClient:
         r=self.s.post(API+path,params=params,data=data,files=files,timeout=120)
         try:d=r.json()
         except Exception: raise RuntimeError(f'接口返回异常 HTTP {r.status_code}')
+        if isinstance(d,list): d=next((x for x in d if isinstance(x,dict)), {})
         if d.get('errno',0)!=0: raise RuntimeError(f'百度接口错误 {d.get("errno")}: {d.get("errmsg",d)}')
         return d
     def md5s(self,path):
