@@ -1,4 +1,4 @@
-import os, threading, tkinter as tk
+import os, re, threading, tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from playwright.sync_api import sync_playwright
@@ -7,7 +7,7 @@ from baidu_direct_uploader import BaiduClient
 class App(tk.Tk):
     def __init__(self):
         super().__init__(); self.title('百度网盘扫码上传'); self.geometry('760x610'); self.resizable(False,False)
-        self.path=tk.StringVar(); self.target=tk.StringVar(value='/'); self.mode='file'; self.ctx=None; self.pw=None; self.cookie=''
+        self.path=tk.StringVar(); self.target=tk.StringVar(value='/'); self.mode='file'; self.ctx=None; self.pw=None; self.cookie=''; self.bdstoken=''
         ttk.Label(self,text='百度网盘扫码登录（登录状态只在本机使用）').pack(anchor='w',padx=14,pady=(12,3))
         row=ttk.Frame(self); row.pack(fill='x',padx=14,pady=8)
         ttk.Button(row,text='扫码登录',command=self.login).pack(side='left'); self.status=ttk.Label(row,text='未登录'); self.status.pack(side='left',padx=12)
@@ -37,6 +37,12 @@ class App(tk.Tk):
                 if names.get('BDUSS') or names.get('BDUSS_BFESS'):
                     self.cookie='; '.join(f'{k}={v}' for k,v in names.items())
                     try:
+                        html=page.content()
+                        m=re.search(r'bdstoken["\\\']?\\s*[:=]\\s*["\\\']([0-9a-f]{32})', html, re.I)
+                        self.bdstoken=m.group(1) if m else ''
+                    except Exception:
+                        self.bdstoken=''
+                    try:
                         self.ctx.close()
                         self.pw.stop()
                     except Exception:
@@ -58,6 +64,7 @@ class App(tk.Tk):
     def run(self,p,target,mode):
         try:
             c=BaiduClient(self.cookie,self.log,self.progress)
+            if self.bdstoken: c.bdstoken=self.bdstoken
             if mode=='folder': c.upload_folder(p,target); self.log('文件夹上传完成')
             else:
                 fid=c.upload_file(p,(target.rstrip('/')+'/'+os.path.basename(p)).replace('//','/')); link,pwd=c.share(fid); sep='&' if '?' in str(link) else '?'; self.log('永久分享链接: '+str(link)+sep+'pwd='+pwd)
