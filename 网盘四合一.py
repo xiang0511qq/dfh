@@ -24,6 +24,7 @@ class App:
   self.cfg=self.load(); self.vars={k:tk.BooleanVar(value=self.cfg.get('selected',{}).get(k,True)) for k in TOOLS}
   self.cookie_vars={k:tk.StringVar(value=self.cfg.get('cookies',{}).get(k,'')) for k in TOOLS}
   self.links={k:tk.StringVar(value=self.cfg.get('links',{}).get(k,'')) for k in TOOLS}
+  self.status={k:tk.StringVar(value=self.cfg.get('status',{}).get(k,'未登录')) for k in TOOLS}
   self.build(); self.log('欢迎使用网盘四合一，总控界面已就绪。')
  def load(self):
   try:
@@ -31,7 +32,7 @@ class App:
   except:return {}
  def save(self):
   os.makedirs(DATA,exist_ok=True)
-  d={'selected':{k:v.get() for k,v in self.vars.items()},'cookies':{k:v.get() for k,v in self.cookie_vars.items()},'links':{k:v.get() for k,v in self.links.items()}}
+  d={'selected':{k:v.get() for k,v in self.vars.items()},'cookies':{k:v.get() for k,v in self.cookie_vars.items()},'links':{k:v.get() for k,v in self.links.items()},'status':{k:v.get() for k,v in self.status.items()}}
   with open(CFG,'w',encoding='utf8') as f:json.dump(d,f,ensure_ascii=False,indent=2)
   self.log('设置和 Cookie 已保存到本机。')
  def build(self):
@@ -41,13 +42,14 @@ class App:
   left=ttk.LabelFrame(body,text=' 选择网盘 ',style='Card.TLabelframe'); left.grid(row=0,column=0,rowspan=2,sticky='nsew',padx=(0,14));
   ttk.Label(left,text='选择后可批量打开上传工具',style='Sub.TLabel').pack(anchor='w',pady=(0,12))
   for k in TOOLS:
-   f=ttk.Frame(left); f.pack(fill='x',pady=6); ttk.Checkbutton(f,text=k,variable=self.vars[k],command=self.save).pack(side='left'); ttk.Button(f,text='单独打开',command=lambda x=k:self.launch([x])).pack(side='right')
+   f=ttk.Frame(left); f.pack(fill='x',pady=6); ttk.Checkbutton(f,text=k,variable=self.vars[k],command=self.save).pack(side='left'); ttk.Label(f,textvariable=self.status[k],foreground='#16803c').pack(side='left',padx=8); ttk.Button(f,text='登录/打开',command=lambda x=k:self.login_or_open(x)).pack(side='right')
   ttk.Separator(left).pack(fill='x',pady=14); ttk.Button(left,text='一键打开已选择平台',command=self.launch_selected).pack(fill='x',pady=4); ttk.Button(left,text='选择上传文件',command=self.choose_file).pack(fill='x',pady=4); ttk.Button(left,text='保存 Cookie / 设置',command=self.save).pack(fill='x',pady=4)
   self.file_var=tk.StringVar(); ttk.Entry(left,textvariable=self.file_var,state='readonly').pack(fill='x',pady=(16,0))
   right=ttk.LabelFrame(body,text=' Cookie 与分享链接 ',style='Card.TLabelframe'); right.grid(row=0,column=1,sticky='nsew'); right.columnconfigure(1,weight=1)
   for i,k in enumerate(TOOLS):
    ttk.Label(right,text=k).grid(row=i,column=0,sticky='w',padx=(0,10),pady=5); ttk.Entry(right,textvariable=self.cookie_vars[k],show='•').grid(row=i,column=1,sticky='ew',pady=5); ttk.Button(right,text='显示',command=lambda x=k:self.toggle_cookie(x)).grid(row=i,column=2,padx=(8,0))
    ttk.Label(right,text='分享链接').grid(row=i,column=3,padx=(18,5)); ttk.Entry(right,textvariable=self.links[k]).grid(row=i,column=4,sticky='ew',pady=5); ttk.Button(right,text='复制',command=lambda x=k:self.copy_link(x)).grid(row=i,column=5,padx=(8,0))
+   if k=='迅雷网盘': ttk.Label(right,text='原工具登录').grid(row=i,column=6,padx=(8,0))
   right.columnconfigure(4,weight=1)
   logf=ttk.LabelFrame(body,text=' 运行日志 ',style='Card.TLabelframe'); logf.grid(row=1,column=1,sticky='nsew',pady=(14,0)); logf.rowconfigure(0,weight=1); logf.columnconfigure(0,weight=1)
   self.text=tk.Text(logf,height=10,bg='#f8fafc',fg='#334155',relief='flat',font=('Consolas',10)); self.text.grid(row=0,column=0,sticky='nsew'); sb=ttk.Scrollbar(logf,command=self.text.yview); sb.grid(row=0,column=1,sticky='ns'); self.text.configure(yscrollcommand=sb.set)
@@ -60,6 +62,10 @@ class App:
   if p:self.file_var.set(p); self.log('已选择文件：'+p)
  def selected(self): return [k for k in TOOLS if self.vars[k].get()]
  def launch_selected(self): self.launch(self.selected())
+ def login_or_open(self,k):
+  self.launch([k])
+  if k=='迅雷网盘': self.log('迅雷：请在原工具窗口内登录，登录状态由原工具保存在本机。')
+  else: self.log(f'{k}：请使用原工具完成登录；Cookie 可在上方保存。')
  def launch(self,names):
   if not names: messagebox.showinfo('提示','请先选择至少一个网盘。'); return
   for k in names:
