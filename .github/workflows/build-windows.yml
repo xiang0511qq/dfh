@@ -23,3 +23,5 @@ jobs:
         with:
           name: 网盘四合一-Windows
           path: dist/网盘四合一.exe
+
+# Triggered by Codex
