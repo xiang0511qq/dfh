@@ -1,0 +1,26 @@
+name: Build unified netdisk EXE
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'unified-netdisk/**'
+      - '.github/workflows/build-unified-netdisk.yml'
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: unified-netdisk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Build EXE
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name "四网盘统一上传工具" unified_netdisk.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 四网盘统一上传工具
+          path: unified-netdisk/dist/四网盘统一上传工具.exe
